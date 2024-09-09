@@ -3,6 +3,7 @@
 
 #include "framework.h"
 #include "GalsPanic.h"
+#include <stdio.h>
 
 #define MAX_LOADSTRING 100
 
@@ -14,26 +15,33 @@
 #include <gdiplus.h>
 #pragma comment(lib,"Gdiplus.lib")
 
+#pragma comment(lib,"msimg32.lib")
+
+using namespace Gdiplus;
+
 ULONG_PTR g_GdiPlusToken;
 void Gdi_Init();
+void Gdi_Create();
 void Gdi_Draw(HDC hdc);
 void Gdi_End();
 
-Gdiplus::Image playerImg = (WCHAR*)_T("images/sigong.png");
-Gdiplus::Image backImg;
+Gdiplus::Image* pImg = nullptr;
+Gdiplus::Image playerImg((WCHAR*)_T("images/sigong.png"));
 
 // DoubleBuffer
 void CreateBitmap();
 void DrawBitmap(HWND hWnd, HDC hdc);
 void DrawBitmapDoubleBuffering(HWND hWnd, HDC hdc);
 void DeleteBitmap();
- 
+void UpdatePlayerPos();
+
 HBITMAP hBackImage;
 BITMAP bitBack;
 HBITMAP hFrontImage;
 BITMAP bitFront;
 HBITMAP hDoubleBufferImage;
 RECT rectView;
+Gdiplus::PointF playerPos = { 300,300 };
 
 #define WINDOW_SIZE_X 720
 #define WINDOW_SIZE_Y 953
@@ -76,16 +84,29 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
     MSG msg;
 
+    Gdi_Init();
     // Main message loop:
-    while (GetMessage(&msg, nullptr, 0, 0))
+    while (true)
     {
-        if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
+        if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
         {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
+            if (msg.message == WM_QUIT)
+            {
+                break;
+            }
+            else
+            {
+                TranslateMessage(&msg);
+                DispatchMessage(&msg);
+            }
+        }
+        else
+        {
+            UpdatePlayerPos();
         }
     }
 
+    Gdi_End();
     return (int) msg.wParam;
 }
 
@@ -93,19 +114,77 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
 void Gdi_Init()
 {
-    Gdiplus::GdiplusStartupInput gpsi;
-    Gdiplus::GdiplusStartup(&g_GdiPlusToken, &gpsi, NULL);
+    using namespace Gdiplus;
+
+    GdiplusStartupInput gpsi;
+    GdiplusStartup(&g_GdiPlusToken, &gpsi, NULL);
+}
+
+void Gdi_Create()
+{
+    pImg = Image::FromFile(L"images/sigong.png");
+    /*if (pImg == NULL && pImg->GetLastStatus() != Gdiplus::Ok)
+    {
+        return;
+    }*/
 }
 
 void Gdi_Draw(HDC hdc)
 {
+    using namespace Gdiplus;
+
+    Graphics graphics(hdc);
+    int w, h;
+    
+    // >> : text
+    SolidBrush brush(Color(255, 255, 0, 0));
+    FontFamily fontFamily(_T("Times New Roman"));
+    Font font(&fontFamily, 24, FontStyleRegular, UnitPixel);
+    PointF pointF(10.0f, 20.0f);
+    graphics.DrawString(_T("Hello GDI+!"), -1, &font, pointF, &brush);
+
+    // >> : line
+    Pen pen(Color(128, 0, 255, 255));
+    graphics.DrawLine(&pen, 0, 0, 200, 100);
+
+    // playerImg
+    w = playerImg.GetWidth();
+    h = playerImg.GetHeight();
+    graphics.DrawImage(&playerImg, 200, 200, w, h);
+
+    Image* pImg2 = Image::FromFile((WCHAR*)_T("images/sigong.png"));
+    if (pImg2)
+    {
+        w = pImg2->GetWidth();
+        h = pImg2->GetHeight();
+
+        Matrix mat;
+        static int rot = 0;
+
+        mat.RotateAt((rot % 360), PointF(playerPos.X + (float)(w / 2), playerPos.Y + (float)(h / 2)));
+        graphics.SetTransform(&mat);
+        graphics.DrawImage(pImg2, (int)playerPos.X, (int)playerPos.Y, w, h);
+        rot += 20;
+
+        mat.Reset();
+        graphics.SetTransform(&mat);
+    }
+
+    ImageAttributes imgAttr1;
+    imgAttr1.SetColorKey(Color(245, 0, 245), Color(255, 10, 255));
+
+    graphics.DrawImage(pImg2, Rect(playerPos.X, playerPos.Y, w, h), 0, 0, w, h, UnitPixel, &imgAttr1);
+
+    if (pImg) delete pImg;
     // player, monster(나중으로)
     //backImg = (Gdiplus::Image)LoadImage(NULL, _T("images/Maxim.bmp"), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION);
 }
 
 void Gdi_End()
 {
-    Gdiplus::GdiplusShutdown(g_GdiPlusToken);
+    using namespace Gdiplus;
+
+    GdiplusShutdown(g_GdiPlusToken);
 }
 
 void CreateBitmap()
@@ -122,7 +201,7 @@ void CreateBitmap()
 
     // front Image
     // TODO: 경로입력
-    hFrontImage = (HBITMAP)LoadImage(NULL, _T(""), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION);
+    hFrontImage = (HBITMAP)LoadImage(NULL, _T("images/FrontMaxim.bmp"), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION);
     if (hFrontImage == NULL)
     {
         DWORD dwError = GetLastError();
@@ -132,7 +211,6 @@ void CreateBitmap()
         GetObject(hFrontImage, sizeof(BITMAP), &bitFront);
 
     // Player
-    //playerImg.Image((WCHAR*)_T(""));
 }
 
 void DrawBitmap(HWND hWnd, HDC hdc)
@@ -155,28 +233,31 @@ void DrawBitmap(HWND hWnd, HDC hdc)
         DeleteDC(hMemDC);
     }
 
-    
-
     HDC hFrontMemDC;
     HBITMAP hFrontOldBitmap;
     // front
     {
-        //hFrontMemDC = CreateCompatibleDC(hdc);
-        //hFrontOldBitmap = (HBITMAP)SelectObject(hFrontMemDC, hBackImage);
-        //bx = bitBack.bmWidth;
-        //by = bitBack.bmHeight;
-        //
-        //// -> 땅따먹기 성공한 구역 Polygon그려주기
-        ///*HBRUSH hBrush = CreateSolidBrush(RGB(255, 0, 255));
-        //HBRUSH oldBrush = (HBRUSH)SelectObject(hMemDC2, hBrush);
-        //Ellipse(hMemDC2, 100, 100, 200, 200);
-        //
-        //SelectObject(hMemDC2, oldBrush);
-        //DeleteObject(hBrush);*/
-        //
-        //TransparentBlt(hdc, 0, 0, bx, by, hFrontMemDC, 0, 0, bx, by, RGB(255, 0, 255));
-        //SelectObject(hFrontMemDC, hFrontOldBitmap);
-        //DeleteDC(hFrontMemDC);
+        hFrontMemDC = CreateCompatibleDC(hdc);
+        hFrontOldBitmap = (HBITMAP)SelectObject(hFrontMemDC, hFrontImage);
+        
+        HBRUSH hBrush = CreateSolidBrush(RGB(100, 100, 100));
+        HBRUSH oldBrush = (HBRUSH)SelectObject(hFrontMemDC, hBrush);
+        Rectangle(hFrontMemDC, 0, 0, bx, by);
+
+        //SelectObject(hFrontMemDC, oldBrush);
+        //DeleteObject(hBrush);
+
+        // -> 땅따먹기 성공한 구역 Polygon그려주기
+        hBrush = CreateSolidBrush(RGB(255, 0, 255));
+        oldBrush = (HBRUSH)SelectObject(hFrontMemDC, hBrush);
+        Rectangle(hFrontMemDC, 100, 100, 200, 200);
+        
+        SelectObject(hFrontMemDC, oldBrush);
+        DeleteObject(hBrush);
+        
+        TransparentBlt(hdc, 10, 10, bx, by, hFrontMemDC, 0, 0, bx, by, RGB(255, 0, 255));
+        SelectObject(hFrontMemDC, hFrontOldBitmap);
+        DeleteDC(hFrontMemDC);
     }
 
     Gdi_Draw(hdc);
@@ -206,6 +287,36 @@ void DeleteBitmap()
     DeleteObject(hBackImage);
     DeleteObject(hFrontImage);
     DeleteObject(hDoubleBufferImage);
+}
+
+void UpdatePlayerPos()
+{
+    DWORD newTime = GetTickCount();
+    static DWORD oldTime = newTime;
+
+    if (newTime - oldTime < 100)
+        return;
+    oldTime = newTime;
+
+    if (GetAsyncKeyState(VK_LEFT) & 0x8000)
+    {
+        playerPos.X -= 10.0f;
+    }
+    else if (GetAsyncKeyState(VK_RIGHT) & 0x8000)
+    {
+        playerPos.X += 10.0f;
+    }
+    else if (GetAsyncKeyState(VK_UP) & 0x8000)
+    {
+        playerPos.Y -= 10.0f;
+    }
+    else if (GetAsyncKeyState(VK_DOWN) & 0x8000)
+    {
+        playerPos.Y += 10.0f;
+    }
+    else
+    {
+    }
 }
 
 
@@ -293,6 +404,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
     case WM_CREATE:
         GetClientRect(hWnd, &rectView);
+        Gdi_Create();
         CreateBitmap();
         break;
     case WM_COMMAND:
@@ -311,6 +423,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 return DefWindowProc(hWnd, message, wParam, lParam);
             }
         }
+        break;
+    case WM_TIMER:
+    {
+        InvalidateRgn(hWnd, NULL, FALSE);
+    }
         break;
     case WM_PAINT:
         {
