@@ -25,8 +25,8 @@ void Gdi_Create();
 void Gdi_Draw(HDC hdc);
 void Gdi_End();
 
-Gdiplus::Image* pImg = nullptr;
-Gdiplus::Image playerImg((WCHAR*)_T("images/sigong.png"));
+
+//Gdiplus::Image playerImg((WCHAR*)_T("images/sigong.png"));
 
 // DoubleBuffer
 void CreateBitmap();
@@ -45,6 +45,7 @@ Gdiplus::PointF playerPos = { 300,300 };
 
 #define WINDOW_SIZE_X 720
 #define WINDOW_SIZE_Y 953
+#define IDT_TIMER1 1
 
 //==============================================================================================
 
@@ -122,11 +123,6 @@ void Gdi_Init()
 
 void Gdi_Create()
 {
-    pImg = Image::FromFile(L"images/sigong.png");
-    /*if (pImg == NULL && pImg->GetLastStatus() != Gdiplus::Ok)
-    {
-        return;
-    }*/
 }
 
 void Gdi_Draw(HDC hdc)
@@ -147,33 +143,23 @@ void Gdi_Draw(HDC hdc)
     Pen pen(Color(128, 0, 255, 255));
     graphics.DrawLine(&pen, 0, 0, 200, 100);
 
-    // playerImg
-    w = playerImg.GetWidth();
-    h = playerImg.GetHeight();
-    graphics.DrawImage(&playerImg, 200, 200, w, h);
-
-    Image* pImg2 = Image::FromFile((WCHAR*)_T("images/sigong.png"));
-    if (pImg2)
+    Gdiplus::Image* pImg = Image::FromFile(_T("images/sigong.png"));
+    if (pImg)
     {
-        w = pImg2->GetWidth();
-        h = pImg2->GetHeight();
+        w = pImg->GetWidth();
+        h = pImg->GetHeight();
 
         Matrix mat;
         static int rot = 0;
 
         mat.RotateAt((rot % 360), PointF(playerPos.X + (float)(w / 2), playerPos.Y + (float)(h / 2)));
         graphics.SetTransform(&mat);
-        graphics.DrawImage(pImg2, (int)playerPos.X, (int)playerPos.Y, w, h);
-        rot += 20;
+        graphics.DrawImage(pImg, (int)playerPos.X, (int)playerPos.Y, w, h);
+        rot -= 20;
 
         mat.Reset();
         graphics.SetTransform(&mat);
     }
-
-    ImageAttributes imgAttr1;
-    imgAttr1.SetColorKey(Color(245, 0, 245), Color(255, 10, 255));
-
-    graphics.DrawImage(pImg2, Rect(playerPos.X, playerPos.Y, w, h), 0, 0, w, h, UnitPixel, &imgAttr1);
 
     if (pImg) delete pImg;
     // player, monster(나중으로)
@@ -250,7 +236,7 @@ void DrawBitmap(HWND hWnd, HDC hdc)
         // -> 땅따먹기 성공한 구역 Polygon그려주기
         hBrush = CreateSolidBrush(RGB(255, 0, 255));
         oldBrush = (HBRUSH)SelectObject(hFrontMemDC, hBrush);
-        Rectangle(hFrontMemDC, 100, 100, 200, 200);
+        Rectangle(hFrontMemDC, 10, 10, 500, 500);
         
         SelectObject(hFrontMemDC, oldBrush);
         DeleteObject(hBrush);
@@ -403,6 +389,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     switch (message)
     {
     case WM_CREATE:
+        SetTimer(hWnd, IDT_TIMER1, 16, NULL);
         GetClientRect(hWnd, &rectView);
         Gdi_Create();
         CreateBitmap();
@@ -426,7 +413,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         break;
     case WM_TIMER:
     {
-        InvalidateRgn(hWnd, NULL, FALSE);
+        switch(wParam)
+        {
+        case IDT_TIMER1:
+            InvalidateRgn(hWnd, NULL, FALSE);
+            break;
+        }
     }
         break;
     case WM_PAINT:
