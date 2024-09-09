@@ -6,6 +6,40 @@
 
 #define MAX_LOADSTRING 100
 
+//==============================================================================================
+// GalsPanic
+
+// Gdi
+#include <objidl.h>
+#include <gdiplus.h>
+#pragma comment(lib,"Gdiplus.lib")
+
+ULONG_PTR g_GdiPlusToken;
+void Gdi_Init();
+void Gdi_Draw(HDC hdc);
+void Gdi_End();
+
+Gdiplus::Image playerImg = (WCHAR*)_T("images/sigong.png");
+Gdiplus::Image backImg;
+
+// DoubleBuffer
+void CreateBitmap();
+void DrawBitmap(HWND hWnd, HDC hdc);
+void DrawBitmapDoubleBuffering(HWND hWnd, HDC hdc);
+void DeleteBitmap();
+ 
+HBITMAP hBackImage;
+BITMAP bitBack;
+HBITMAP hFrontImage;
+BITMAP bitFront;
+HBITMAP hDoubleBufferImage;
+RECT rectView;
+
+#define WINDOW_SIZE_X 720
+#define WINDOW_SIZE_Y 953
+
+//==============================================================================================
+
 // Global Variables:
 HINSTANCE hInst;                                // current instance
 WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
@@ -55,8 +89,127 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     return (int) msg.wParam;
 }
 
+//==============================================================================================
+
+void Gdi_Init()
+{
+    Gdiplus::GdiplusStartupInput gpsi;
+    Gdiplus::GdiplusStartup(&g_GdiPlusToken, &gpsi, NULL);
+}
+
+void Gdi_Draw(HDC hdc)
+{
+    // player, monster(나중으로)
+    //backImg = (Gdiplus::Image)LoadImage(NULL, _T("images/Maxim.bmp"), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION);
+}
+
+void Gdi_End()
+{
+    Gdiplus::GdiplusShutdown(g_GdiPlusToken);
+}
+
+void CreateBitmap()
+{
+    // backGround image
+    hBackImage = (HBITMAP)LoadImage(NULL, _T("images/Maxim.bmp"),IMAGE_BITMAP,0,0,LR_LOADFROMFILE | LR_CREATEDIBSECTION);
+    if (hBackImage == NULL)
+    {
+        DWORD dwError = GetLastError();
+        MessageBox(NULL, _T("backGround Image load error"), _T("Error"), MB_OK);
+    }
+    else
+        GetObject(hBackImage, sizeof(BITMAP), &bitBack);
+
+    // front Image
+    // TODO: 경로입력
+    hFrontImage = (HBITMAP)LoadImage(NULL, _T(""), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION);
+    if (hFrontImage == NULL)
+    {
+        DWORD dwError = GetLastError();
+        MessageBox(NULL, _T("front Image load error"), _T("Error"), MB_OK);
+    }
+    else
+        GetObject(hFrontImage, sizeof(BITMAP), &bitFront);
+
+    // Player
+    //playerImg.Image((WCHAR*)_T(""));
+}
+
+void DrawBitmap(HWND hWnd, HDC hdc)
+{
+    HDC hMemDC;
+    HBITMAP hOldBitmap;
+    int bx, by;
+
+    // backGround
+    {
+        hMemDC = CreateCompatibleDC(hdc);
+        hOldBitmap = (HBITMAP)SelectObject(hMemDC, hBackImage);
+        bx = bitBack.bmWidth;
+        by = bitBack.bmHeight;
+
+        BitBlt(hdc, 10, 10, bx, by, hMemDC, 0, 0, SRCCOPY);
+        StretchBlt(hdc, 10, 10, bx, by, hMemDC, 0, 0, bx, by, SRCCOPY);
+        
+        SelectObject(hMemDC, hOldBitmap);
+        DeleteDC(hMemDC);
+    }
+
+    
+
+    HDC hFrontMemDC;
+    HBITMAP hFrontOldBitmap;
+    // front
+    {
+        //hFrontMemDC = CreateCompatibleDC(hdc);
+        //hFrontOldBitmap = (HBITMAP)SelectObject(hFrontMemDC, hBackImage);
+        //bx = bitBack.bmWidth;
+        //by = bitBack.bmHeight;
+        //
+        //// -> 땅따먹기 성공한 구역 Polygon그려주기
+        ///*HBRUSH hBrush = CreateSolidBrush(RGB(255, 0, 255));
+        //HBRUSH oldBrush = (HBRUSH)SelectObject(hMemDC2, hBrush);
+        //Ellipse(hMemDC2, 100, 100, 200, 200);
+        //
+        //SelectObject(hMemDC2, oldBrush);
+        //DeleteObject(hBrush);*/
+        //
+        //TransparentBlt(hdc, 0, 0, bx, by, hFrontMemDC, 0, 0, bx, by, RGB(255, 0, 255));
+        //SelectObject(hFrontMemDC, hFrontOldBitmap);
+        //DeleteDC(hFrontMemDC);
+    }
+
+    Gdi_Draw(hdc);
+}
+
+void DrawBitmapDoubleBuffering(HWND hWnd, HDC hdc)
+{
+    HDC hDoubleBufferDC;
+    HBITMAP hOldDoubleBufferBitmap;
+
+    hDoubleBufferDC = CreateCompatibleDC(hdc);
+    if (hDoubleBufferImage == NULL)
+    {
+        hDoubleBufferImage = CreateCompatibleBitmap(hdc, rectView.right, rectView.bottom);
+    }
+    hOldDoubleBufferBitmap = (HBITMAP)SelectObject(hDoubleBufferDC, hDoubleBufferImage);
+
+    DrawBitmap(hWnd, hDoubleBufferDC);
+
+    BitBlt(hdc, 0, 0, rectView.right, rectView.bottom, hDoubleBufferDC, 0, 0, SRCCOPY);
+    SelectObject(hDoubleBufferDC, hOldDoubleBufferBitmap);
+    DeleteDC(hDoubleBufferDC);
+}
+
+void DeleteBitmap()
+{
+    DeleteObject(hBackImage);
+    DeleteObject(hFrontImage);
+    DeleteObject(hDoubleBufferImage);
+}
 
 
+//==============================================================================================
 //
 //  FUNCTION: MyRegisterClass()
 //
@@ -97,16 +250,29 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
    hInst = hInstance; // Store instance handle in our global variable
 
-   HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
-      CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);
+   /*HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
+      CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);*/
 
-   if (!hWnd)
+   RECT rt = { 0, 0, WINDOW_SIZE_X, WINDOW_SIZE_Y };
+   AdjustWindowRect(&rt, WS_OVERLAPPEDWINDOW, 0);
+   HWND g_hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
+       50, 50, rt.right - rt.left, rt.bottom - rt.top, nullptr, nullptr, hInstance, nullptr);
+
+   if (!g_hWnd)
+   {
+      return FALSE;
+   }
+
+   ShowWindow(g_hWnd, nCmdShow);
+   UpdateWindow(g_hWnd);
+
+   /*if (!hWnd)
    {
       return FALSE;
    }
 
    ShowWindow(hWnd, nCmdShow);
-   UpdateWindow(hWnd);
+   UpdateWindow(hWnd);*/
 
    return TRUE;
 }
@@ -125,6 +291,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {
+    case WM_CREATE:
+        GetClientRect(hWnd, &rectView);
+        CreateBitmap();
+        break;
     case WM_COMMAND:
         {
             int wmId = LOWORD(wParam);
@@ -147,10 +317,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hWnd, &ps);
             // TODO: Add any drawing code that uses hdc here...
+
+            DrawBitmapDoubleBuffering(hWnd, hdc);
+
             EndPaint(hWnd, &ps);
         }
         break;
     case WM_DESTROY:
+        DeleteBitmap();
         PostQuitMessage(0);
         break;
     default:
