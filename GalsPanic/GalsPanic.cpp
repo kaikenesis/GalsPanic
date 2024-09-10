@@ -4,6 +4,8 @@
 #include "framework.h"
 #include "GalsPanic.h"
 #include <stdio.h>
+#include <stack>
+#include <vector>
 
 #define MAX_LOADSTRING 100
 
@@ -21,12 +23,10 @@ using namespace Gdiplus;
 
 ULONG_PTR g_GdiPlusToken;
 void Gdi_Init();
-void Gdi_Create();
 void Gdi_Draw(HDC hdc);
 void Gdi_End();
 
-
-//Gdiplus::Image playerImg((WCHAR*)_T("images/sigong.png"));
+Gdiplus::Image* pImg;
 
 // DoubleBuffer
 void CreateBitmap();
@@ -41,11 +41,39 @@ HBITMAP hFrontImage;
 BITMAP bitFront;
 HBITMAP hDoubleBufferImage;
 RECT rectView;
-Gdiplus::PointF playerPos = { 300,300 };
+Gdiplus::PointF playerPos = { 10, 10 };
 
 #define WINDOW_SIZE_X 720
 #define WINDOW_SIZE_Y 953
 #define IDT_TIMER1 1
+
+int drawOffset = 10;
+
+// System
+BOOL IsSafe();
+BOOL IsFrame();
+void DrawLine(Graphics& graphics);
+void DrawPolygon(HDC hdc);
+void UpdateMovePoint(float speed);
+void UpdatePolygonPoint();
+void InitStartPoint();
+void InitPolygon();
+void MoveToX(float speed);
+void MoveToY(float speed);
+
+enum EMoveDir
+{
+    None,
+    X,
+    Y
+};
+
+int offset = 10;
+float playerSpeed = 10.0f;
+std::vector<POINT> movePoints;
+std::vector<POINT> bufferPoints;
+POINT* polygonPoints = new POINT[100]();
+EMoveDir eDir = None;
 
 //==============================================================================================
 
@@ -85,7 +113,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
     MSG msg;
 
-    Gdi_Init();
     // Main message loop:
     while (true)
     {
@@ -106,8 +133,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             UpdatePlayerPos();
         }
     }
-
-    Gdi_End();
+    
     return (int) msg.wParam;
 }
 
@@ -119,10 +145,8 @@ void Gdi_Init()
 
     GdiplusStartupInput gpsi;
     GdiplusStartup(&g_GdiPlusToken, &gpsi, NULL);
-}
 
-void Gdi_Create()
-{
+    pImg = Image::FromFile(_T("images/sigong.png"));
 }
 
 void Gdi_Draw(HDC hdc)
@@ -131,39 +155,60 @@ void Gdi_Draw(HDC hdc)
 
     Graphics graphics(hdc);
     int w, h;
-    
-    // >> : text
-    SolidBrush brush(Color(255, 255, 0, 0));
-    FontFamily fontFamily(_T("Times New Roman"));
-    Font font(&fontFamily, 24, FontStyleRegular, UnitPixel);
-    PointF pointF(10.0f, 20.0f);
-    graphics.DrawString(_T("Hello GDI+!"), -1, &font, pointF, &brush);
 
     // >> : line
-    Pen pen(Color(128, 0, 255, 255));
-    graphics.DrawLine(&pen, 0, 0, 200, 100);
+    DrawLine(graphics);
+    
+    // >> : Image
+    ImageAttributes imgAttr;
+    imgAttr.SetColorKey(Color(245, 0, 245), Color(255, 10, 255));
 
-    Gdiplus::Image* pImg = Image::FromFile(_T("images/sigong.png"));
     if (pImg)
     {
-        w = pImg->GetWidth();
-        h = pImg->GetHeight();
+        w = pImg->GetWidth() / 1.5;
+        h = pImg->GetHeight() / 1.5;
 
         Matrix mat;
         static int rot = 0;
 
-        mat.RotateAt((rot % 360), PointF(playerPos.X + (float)(w / 2), playerPos.Y + (float)(h / 2)));
+        mat.RotateAt((rot % 360), PointF(playerPos.X, playerPos.Y));
         graphics.SetTransform(&mat);
-        graphics.DrawImage(pImg, (int)playerPos.X, (int)playerPos.Y, w, h);
+
+        if(IsSafe())
+        {
+            REAL transparency = 1.0f;
+            Gdiplus::ColorMatrix colorMatrix =
+            {
+                10.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                0.0f, 1.0f, 0.0f, 0.0f, 0.0f,
+                0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+                0.0f, 0.0f, 0.0f, transparency, 0.0f,
+                0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+            };
+            imgAttr.SetColorMatrix(&colorMatrix);
+        }
+        else
+        {
+            REAL transparency = 1.0f;
+            Gdiplus::ColorMatrix colorMatrix =
+            {
+                1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                0.0f, 1.0f, 0.0f, 0.0f, 0.0f,
+                0.0f, 0.0f, 10.0f, 0.0f, 0.0f,
+                0.0f, 0.0f, 0.0f, transparency, 0.0f,
+                0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+            };
+            imgAttr.SetColorMatrix(&colorMatrix);
+        }
+
+        graphics.DrawImage(pImg, Rect((int)playerPos.X - w / 2, (int)playerPos.Y - h / 2, w, h), 0, 0, w * 1.5, h * 1.5, UnitPixel, &imgAttr);
         rot -= 20;
 
         mat.Reset();
         graphics.SetTransform(&mat);
     }
 
-    if (pImg) delete pImg;
-    // player, monster(나중으로)
-    //backImg = (Gdiplus::Image)LoadImage(NULL, _T("images/Maxim.bmp"), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION);
+    // monster(나중으로)
 }
 
 void Gdi_End()
@@ -184,7 +229,7 @@ void CreateBitmap()
     }
     else
         GetObject(hBackImage, sizeof(BITMAP), &bitBack);
-
+    
     // front Image
     // TODO: 경로입력
     hFrontImage = (HBITMAP)LoadImage(NULL, _T("images/FrontMaxim.bmp"), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION);
@@ -234,12 +279,19 @@ void DrawBitmap(HWND hWnd, HDC hdc)
         //DeleteObject(hBrush);
 
         // -> 땅따먹기 성공한 구역 Polygon그려주기
-        hBrush = CreateSolidBrush(RGB(255, 0, 255));
-        oldBrush = (HBRUSH)SelectObject(hFrontMemDC, hBrush);
-        Rectangle(hFrontMemDC, 10, 10, 500, 500);
+
+        if(bufferPoints.empty() == false)
+        {
+            hBrush = CreateSolidBrush(RGB(255, 0, 255));
+            oldBrush = (HBRUSH)SelectObject(hFrontMemDC, hBrush);
+            
+            Polygon(hFrontMemDC, polygonPoints, bufferPoints.size());
+            //Rectangle(hFrontMemDC, 10, 10, 500, 500);
+
+            SelectObject(hFrontMemDC, oldBrush);
+            DeleteObject(hBrush);
+        }
         
-        SelectObject(hFrontMemDC, oldBrush);
-        DeleteObject(hBrush);
         
         TransparentBlt(hdc, 10, 10, bx, by, hFrontMemDC, 0, 0, bx, by, RGB(255, 0, 255));
         SelectObject(hFrontMemDC, hFrontOldBitmap);
@@ -280,31 +332,213 @@ void UpdatePlayerPos()
     DWORD newTime = GetTickCount();
     static DWORD oldTime = newTime;
 
-    if (newTime - oldTime < 100)
+    if (newTime - oldTime < 20)
         return;
     oldTime = newTime;
 
     if (GetAsyncKeyState(VK_LEFT) & 0x8000)
     {
-        playerPos.X -= 10.0f;
+        if (playerPos.X - playerSpeed < rectView.left + offset)
+            playerPos.X = rectView.left + offset;
+        else
+            playerPos.X -= playerSpeed;
+
+        UpdateMovePoint(-playerSpeed);
     }
     else if (GetAsyncKeyState(VK_RIGHT) & 0x8000)
     {
-        playerPos.X += 10.0f;
+        if (playerPos.X + playerSpeed > rectView.right - offset)
+            playerPos.X = rectView.right - offset;
+        else
+            playerPos.X += playerSpeed;
+
+        UpdateMovePoint(playerSpeed);
     }
     else if (GetAsyncKeyState(VK_UP) & 0x8000)
     {
-        playerPos.Y -= 10.0f;
+        if (playerPos.Y - playerSpeed < rectView.top + offset)
+            playerPos.Y = rectView.top + offset;
+        else
+            playerPos.Y -= playerSpeed;
+
+        UpdateMovePoint(-playerSpeed);
     }
     else if (GetAsyncKeyState(VK_DOWN) & 0x8000)
     {
-        playerPos.Y += 10.0f;
+        if(playerPos.Y + playerSpeed > rectView.bottom - offset)
+            playerPos.Y = rectView.bottom - offset;
+        else
+            playerPos.Y += playerSpeed;
+
+        UpdateMovePoint(playerSpeed);
     }
-    else
+
+}
+
+BOOL IsSafe()
+{
+    if (IsFrame() == false) return false;
+
+    return true;
+}
+
+BOOL IsFrame()
+{
+    if ((playerPos.Y != rectView.top + offset && playerPos.Y != rectView.bottom - offset)
+        && (playerPos.X != rectView.left + offset && playerPos.X != rectView.right - offset)) return false;
+
+    return true;
+}
+
+void DrawLine(Graphics& graphics)
+{
+    Pen pen(Color(255, 255, 0, 0));
+
+    if (movePoints.size() >= 2)
     {
+        for (int i = 0; i < movePoints.size() - 1; i++)
+        {
+            graphics.DrawLine(&pen, (INT)movePoints[i].x, (INT)movePoints[i].y, (INT)movePoints[i + 1].x, (INT)movePoints[i + 1].y);
+        }
     }
 }
 
+void DrawPolygon(HDC hdc)
+{
+    //Polygon(hdc, );
+}
+
+void UpdateMovePoint(float speed)
+{
+    if (IsSafe() == false)
+    {
+        MoveToX(speed);
+        MoveToY(speed);
+    }
+    else
+    {
+        if (movePoints.size() > 2)
+        {
+            POINT point = { playerPos.X, playerPos.Y };
+            movePoints[movePoints.size() - 1] = point;
+            UpdatePolygonPoint();
+            // 마지막 point를 업데이트하고, 완성된 point를 저장해서 polygon을 만들 배열에 저장
+        }
+        else
+        {
+            POINT point = { playerPos.X, playerPos.Y };
+            movePoints[0] = point;
+        }
+    }
+    // 안전구역을 벗어나면 출발지점 저장, x->y, y->x 변경이 없는 동안은 현재 위치를 stack.top에 갱신, 변경되면 해당지점 stack에 저장
+    
+}
+
+void UpdatePolygonPoint()
+{
+    for (int i = 0; i < movePoints.size(); i++)
+    {
+        bufferPoints.push_back(movePoints[i]);
+    }
+    
+    while (movePoints.empty() == false)
+    {
+        movePoints.pop_back();
+    }
+
+    if (movePoints.empty())
+    {
+        InitStartPoint();
+    }
+
+    if (bufferPoints.size() > _msize(polygonPoints))
+    {
+        POINT* newPoint = new POINT[_msize(polygonPoints) + 100];
+        delete[] polygonPoints;
+        polygonPoints = newPoint;
+        delete[] newPoint;
+    }
+
+    for (int i = 0; i < bufferPoints.size(); i++)
+    {
+        bufferPoints[i].x -= drawOffset;
+        bufferPoints[i].y -= drawOffset;
+
+        polygonPoints[i] = bufferPoints[i];
+    }
+}
+
+void InitStartPoint()
+{
+    if (movePoints.empty() == true)
+    {
+        POINT point = { playerPos.X,playerPos.Y };
+        movePoints.push_back(point);
+    }
+}
+
+void InitPolygon()
+{
+    // 랜덤으로 사각형의 polygon생성 거기서부터 플레이어가 시작할 수 있도록 세팅
+}
+
+void MoveToX(float speed)
+{
+    if (movePoints[movePoints.size() - 1].x != playerPos.X)
+    {
+        if (eDir == Y || eDir == None)
+        {
+            if (movePoints[movePoints.size() - 1].y != playerPos.Y || movePoints.size() == 1)
+            {
+                POINT point = { playerPos.X - speed,playerPos.Y };
+                movePoints.push_back(point);
+            }
+            else
+            {
+                if (movePoints[movePoints.size() - 2].y == playerPos.Y)
+                    movePoints.pop_back();
+                else
+                {
+                    POINT point = { playerPos.X - speed,playerPos.Y };
+                    movePoints.push_back(point);
+                }
+            }
+            eDir = X;
+        }
+
+        POINT point = { playerPos.X ,movePoints[movePoints.size() - 1].y };
+        movePoints[movePoints.size() - 1] = point;
+    }
+}
+
+void MoveToY(float speed)
+{
+    if (movePoints[movePoints.size() - 1].y != playerPos.Y)
+    {
+        if (eDir == X || eDir == None)
+        {
+            if (movePoints[movePoints.size() - 1].x != playerPos.X || movePoints.size() == 1)
+            {
+                POINT point = { playerPos.X ,playerPos.Y - speed };
+                movePoints.push_back(point);
+            }
+            else
+            {
+                if (movePoints[movePoints.size() - 2].x == playerPos.X)
+                    movePoints.pop_back();
+                else
+                {
+                    POINT point = { playerPos.X ,playerPos.Y - speed };
+                    movePoints.push_back(point);
+                }
+            }
+            eDir = Y;
+        }
+
+        POINT point = { movePoints[movePoints.size() - 1].x, playerPos.Y };
+        movePoints[movePoints.size() - 1] = point;
+    }
+}
 
 //==============================================================================================
 //
@@ -347,10 +581,11 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
    hInst = hInstance; // Store instance handle in our global variable
 
-   /*HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
-      CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);*/
+   // Create & Init
+   CreateBitmap();
+   Gdi_Init();
 
-   RECT rt = { 0, 0, WINDOW_SIZE_X, WINDOW_SIZE_Y };
+   RECT rt = { 0, 0, bitBack.bmWidth + 20, bitBack.bmHeight + 40 };
    AdjustWindowRect(&rt, WS_OVERLAPPEDWINDOW, 0);
    HWND g_hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
        50, 50, rt.right - rt.left, rt.bottom - rt.top, nullptr, nullptr, hInstance, nullptr);
@@ -362,14 +597,6 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
    ShowWindow(g_hWnd, nCmdShow);
    UpdateWindow(g_hWnd);
-
-   /*if (!hWnd)
-   {
-      return FALSE;
-   }
-
-   ShowWindow(hWnd, nCmdShow);
-   UpdateWindow(hWnd);*/
 
    return TRUE;
 }
@@ -389,10 +616,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     switch (message)
     {
     case WM_CREATE:
-        SetTimer(hWnd, IDT_TIMER1, 16, NULL);
+        SetTimer(hWnd, IDT_TIMER1, 10, NULL);
         GetClientRect(hWnd, &rectView);
-        Gdi_Create();
-        CreateBitmap();
+        InitStartPoint();
+        
         break;
     case WM_COMMAND:
         {
@@ -410,6 +637,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 return DefWindowProc(hWnd, message, wParam, lParam);
             }
         }
+        break;
+    case WM_KEYDOWN:
+
         break;
     case WM_TIMER:
     {
@@ -433,6 +663,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         break;
     case WM_DESTROY:
+        Gdi_End();
         DeleteBitmap();
         PostQuitMessage(0);
         break;
