@@ -53,13 +53,12 @@ int drawOffset = 10;
 
 // System
 BOOL IsSafe();
-BOOL IsFrame();
-BOOL IsInPolygon();
+BOOL IsInPolygon(std::vector<POINT> points, int inX, int inY);
 void DrawLine(Graphics& graphics);
 void DrawRectangle(HDC hdc);
 void UpdateMovePoint(float speed);
 void UpdatePolygonPoint();
-void InitStartPoint();
+void InitStartPoint(int inX, int inY);
 void InitPolygon();
 void MoveToX(float speed);
 void MoveToY(float speed);
@@ -73,9 +72,10 @@ enum EMoveDir
 };
 
 int offset = 10;
+int arrSize = 100;
 float playerSpeed = 10.0f;
 std::vector<POINT> movePoints;
-std::vector<POINT> bufferPoints;
+std::vector<POINT> polygonPoints;
 POINT* drawPoints;
 EMoveDir eDir = None;
 
@@ -159,8 +159,6 @@ void Gdi_Draw(HDC hdc)
 
     Graphics graphics(hdc);
     int w, h;
-
-    
 
     // >> : line
     DrawLine(graphics);
@@ -282,7 +280,7 @@ void DrawBitmap(HWND hWnd, HDC hdc)
         Rectangle(hFrontMemDC, 0, 0, bx, by);
 
         // -> 땅따먹기 성공한 구역 Rectangle그려주기
-        if(bufferPoints.empty() == false)
+        if(polygonPoints.empty() == false)
         {
             HPEN myPen = CreatePen(PS_NULL, 0, RGB(255, 0, 255));
             HGDIOBJ oldPen = SelectObject(hFrontMemDC, myPen);
@@ -385,49 +383,40 @@ void UpdatePlayerPos()
 
 BOOL IsSafe()
 {
-    //if (IsFrame() == false) return false;
-    if (IsInPolygon() == false) return false;
+    if (IsInPolygon(polygonPoints, playerPos.X, playerPos.Y) == false) return false;
 
     return true;
 }
 
-BOOL IsFrame()
+BOOL IsInPolygon(std::vector<POINT> points, int inX, int inY)
 {
-    if ((playerPos.Y != rectView.top + offset && playerPos.Y != rectView.bottom - offset)
-        && (playerPos.X != rectView.left + offset && playerPos.X != rectView.right - offset)) return false;
-
-    return true;
-}
-
-BOOL IsInPolygon()
-{
-    int maxX = bufferPoints[0].x;
-    int minX = bufferPoints[0].x;
-
-    for (int i = 0; i < bufferPoints.size(); i++)
+    int maxY = points[0].y;
+    int minY = points[0].y;
+    int n = points.size();
+    for (int i = 0; i < n; i++)
     {
-        if (bufferPoints[i].x > maxX) maxX = bufferPoints[i].x;
-        else if (bufferPoints[i].x < minX) minX = bufferPoints[i].x;
+        if (points[i].y > maxY) maxY = points[i].y;
+        else if (points[i].y < minY) minY = points[i].y;
     }
 
-    std::vector<int> yPoints;
-    for (int i = minX; i < maxX; i += playerSpeed) // minX -> maxX 로 한줄씩 그리면서 
-    {
-        for (int j = 0; j < bufferPoints.size(); j++)
-        {
-            if (bufferPoints[j].x == i)
-                yPoints.push_back(bufferPoints[j].y);
-        }
+    if (inY > maxY || inY < minY) return false;
 
-        SortArr(yPoints);
-        for (int j = 0; j < yPoints.size(); j += 2)
+    int crossCount = 0;
+    for (int i = 0; i < n; i++)
+    {
+        POINT p1 = points[i];
+        POINT p2 = points[(i + 1) % n];
+
+        if ((inY > min(p1.y, p2.y)) && (inY <= max(p1.y, p2.y)) && (inX <= max(p1.x, p2.x)))
         {
-            if (playerPos.X >= i && playerPos.X <= i + playerSpeed && playerPos.Y >= yPoints[j] && playerPos.Y <= yPoints[j + 1])
-                return true;
+            double xIntersect = (inY - p1.y) * (p2.x - p1.x) / (p2.y - p1.y) + p1.x;
+            if (p1.x == p2.x || inX <= xIntersect) {
+                crossCount++;
+            }
         }
     }
-
-    return false;
+    
+    return crossCount % 2 == 1;
 }
 
 void DrawLine(Graphics& graphics)
@@ -445,45 +434,20 @@ void DrawLine(Graphics& graphics)
 
 void DrawRectangle(HDC hdc)
 {
-    if (bufferPoints.size() > _msize(drawPoints) / sizeof(drawPoints))
+    if (polygonPoints.size() > arrSize)
     {
-        POINT* newPoints = new POINT[_msize(drawPoints) / sizeof(drawPoints) + 100]();
+        arrSize += 100;
+        POINT* newPoints = new POINT[arrSize]();
         delete[](drawPoints);
         drawPoints = newPoints;
-        newPoints = NULL;
     }
 
-    for (int i = 0; i < bufferPoints.size(); i++)
+    for (int i = 0; i < polygonPoints.size(); i++)
     {
-        drawPoints[i] = bufferPoints[i];
+        drawPoints[i] = polygonPoints[i];
     }
 
-    Polygon(hdc, drawPoints, bufferPoints.size());
-    
-    //int maxX = bufferPoints[0].x;
-    //int minX = bufferPoints[0].x;
-
-    //for (int i = 0; i < bufferPoints.size(); i++)
-    //{
-    //    if (bufferPoints[i].x > maxX) maxX = bufferPoints[i].x;
-    //    else if (bufferPoints[i].x < minX) minX = bufferPoints[i].x;
-    //}
-    //
-    //std::vector<int> yPoints;
-    //for (int i = minX; i < maxX; i+= playerSpeed) // minX -> maxX 로 한줄씩 그리면서 
-    //{
-    //    for (int j = 0; j < bufferPoints.size(); j++)
-    //    {
-    //        if (bufferPoints[j].x == i)
-    //            yPoints.push_back(bufferPoints[j].y);
-    //    }
-
-    //    SortArr(yPoints);
-    //    for (int j = 0; j < yPoints.size(); j += 2)
-    //    {
-    //        Rectangle(hdc, i, yPoints[j], i + playerSpeed + 1, yPoints[j + 1]);
-    //    }
-    //}
+    Polygon(hdc, drawPoints, polygonPoints.size());
 }
 
 void UpdateMovePoint(float speed)
@@ -506,6 +470,10 @@ void UpdateMovePoint(float speed)
         {
             POINT point = { playerPos.X, playerPos.Y };
             movePoints[0] = point;
+            if (movePoints.size() == 2)
+            {
+                movePoints[1] = point;
+            }
         }
     }
     // 안전구역을 벗어나면 출발지점 저장, x->y, y->x 변경이 없는 동안은 현재 위치를 stack.top에 갱신, 변경되면 해당지점 stack에 저장
@@ -514,35 +482,60 @@ void UpdateMovePoint(float speed)
 
 void UpdatePolygonPoint()
 {
+    std::vector<POINT> frontBuffer;
+    std::vector<POINT> backBuffer;
+    bool bStart = false;
+    for (int i = 0; i < polygonPoints.size(); i++)
+    {
+        // 새로 그린 다각형내부에 점이 있는 경우
+        if (IsInPolygon(movePoints, polygonPoints[i].x, polygonPoints[i].y) == false)
+        {
+            if (bStart == false)
+                frontBuffer.push_back(polygonPoints[i]);
+            else
+                backBuffer.push_back(polygonPoints[i]);
+        }
+        else
+        {
+            bStart = true;
+        }
+        // 없는 경우
+    }
+
+    polygonPoints.clear();
+    for (int i = 0; i < frontBuffer.size(); i++)
+    {
+        POINT point = { frontBuffer[i].x, frontBuffer[i].y};
+        polygonPoints.push_back(point);
+    }
     for (int i = 0; i < movePoints.size(); i++)
     {
-        bufferPoints.push_back(movePoints[i]);
+        POINT point = { movePoints[i].x - drawOffset, movePoints[i].y - drawOffset };
+        polygonPoints.push_back(point);
+    }
+    for (int i = 0; i < backBuffer.size(); i++)
+    {
+        POINT point = { backBuffer[i].x, backBuffer[i].y};
+        polygonPoints.push_back(point);
     }
     
-    while (movePoints.empty() == false)
+    movePoints.clear();
+    /*while (movePoints.empty() == false)
     {
         movePoints.pop_back();
-    }
+    }*/
 
     if (movePoints.empty())
     {
-        InitStartPoint();
-    }
-
-    for (int i = 0; i < bufferPoints.size(); i++)
-    {
-        bufferPoints[i].x -= drawOffset;
-        bufferPoints[i].y -= drawOffset;
+        InitStartPoint(playerPos.X, playerPos.Y);
     }
 }
 
-void InitStartPoint()
+void InitStartPoint(int inX, int inY)
 {
-    InitPolygon();
-
     if (movePoints.empty() == true)
     {
-        POINT point = { bufferPoints[0].x + drawOffset, bufferPoints[0].y + drawOffset };
+        POINT point = { inX + drawOffset, inY + drawOffset };
         movePoints.push_back(point);
         playerPos.X = point.x;
         playerPos.Y = point.y;
@@ -552,7 +545,7 @@ void InitStartPoint()
 void InitPolygon()
 {
     // 랜덤으로 사각형의 polygon생성 거기서부터 플레이어가 시작할 수 있도록 세팅
-    drawPoints = new POINT[1]();
+    drawPoints = new POINT[arrSize]();
 
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -572,7 +565,7 @@ void InitPolygon()
 
     for (int i = 0; i < 4; i++)
     {
-        bufferPoints.push_back(points[i]);
+        polygonPoints.push_back(points[i]);
         drawPoints[i] = points[i];
     }
 }
@@ -729,8 +722,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_CREATE:
         SetTimer(hWnd, IDT_TIMER1, 16, NULL);
         GetClientRect(hWnd, &rectView);
-        InitStartPoint();
-        
+        InitPolygon();
+        InitStartPoint(polygonPoints[0].x, polygonPoints[0].y);
+
         break;
     case WM_COMMAND:
         {
