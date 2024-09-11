@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <stack>
 #include <vector>
+#include <algorithm>
+#include <random>
 
 #define MAX_LOADSTRING 100
 
@@ -52,14 +54,16 @@ int drawOffset = 10;
 // System
 BOOL IsSafe();
 BOOL IsFrame();
+BOOL IsInPolygon();
 void DrawLine(Graphics& graphics);
-void DrawPolygon(HDC hdc);
+void DrawRectangle(HDC hdc);
 void UpdateMovePoint(float speed);
 void UpdatePolygonPoint();
 void InitStartPoint();
 void InitPolygon();
 void MoveToX(float speed);
 void MoveToY(float speed);
+void SortArr(std::vector<int>& vec);
 
 enum EMoveDir
 {
@@ -72,7 +76,7 @@ int offset = 10;
 float playerSpeed = 10.0f;
 std::vector<POINT> movePoints;
 std::vector<POINT> bufferPoints;
-POINT* polygonPoints = new POINT[100]();
+POINT* drawPoints;
 EMoveDir eDir = None;
 
 //==============================================================================================
@@ -155,6 +159,8 @@ void Gdi_Draw(HDC hdc)
 
     Graphics graphics(hdc);
     int w, h;
+
+    
 
     // >> : line
     DrawLine(graphics);
@@ -275,21 +281,23 @@ void DrawBitmap(HWND hWnd, HDC hdc)
         HBRUSH oldBrush = (HBRUSH)SelectObject(hFrontMemDC, hBrush);
         Rectangle(hFrontMemDC, 0, 0, bx, by);
 
-        //SelectObject(hFrontMemDC, oldBrush);
-        //DeleteObject(hBrush);
-
-        // -> 땅따먹기 성공한 구역 Polygon그려주기
-
+        // -> 땅따먹기 성공한 구역 Rectangle그려주기
         if(bufferPoints.empty() == false)
         {
+            HPEN myPen = CreatePen(PS_NULL, 0, RGB(255, 0, 255));
+            HGDIOBJ oldPen = SelectObject(hFrontMemDC, myPen);
+            
             hBrush = CreateSolidBrush(RGB(255, 0, 255));
             oldBrush = (HBRUSH)SelectObject(hFrontMemDC, hBrush);
             
-            Polygon(hFrontMemDC, polygonPoints, bufferPoints.size());
-            //Rectangle(hFrontMemDC, 10, 10, 500, 500);
+            DrawRectangle(hFrontMemDC);
+
+            SelectObject(hFrontMemDC, oldPen);
+            DeleteObject(myPen);
 
             SelectObject(hFrontMemDC, oldBrush);
             DeleteObject(hBrush);
+            
         }
         
         
@@ -354,7 +362,7 @@ void UpdatePlayerPos()
 
         UpdateMovePoint(playerSpeed);
     }
-    else if (GetAsyncKeyState(VK_UP) & 0x8000)
+    if (GetAsyncKeyState(VK_UP) & 0x8000)
     {
         if (playerPos.Y - playerSpeed < rectView.top + offset)
             playerPos.Y = rectView.top + offset;
@@ -365,7 +373,7 @@ void UpdatePlayerPos()
     }
     else if (GetAsyncKeyState(VK_DOWN) & 0x8000)
     {
-        if(playerPos.Y + playerSpeed > rectView.bottom - offset)
+        if (playerPos.Y + playerSpeed > rectView.bottom - offset)
             playerPos.Y = rectView.bottom - offset;
         else
             playerPos.Y += playerSpeed;
@@ -377,7 +385,8 @@ void UpdatePlayerPos()
 
 BOOL IsSafe()
 {
-    if (IsFrame() == false) return false;
+    //if (IsFrame() == false) return false;
+    if (IsInPolygon() == false) return false;
 
     return true;
 }
@@ -388,6 +397,37 @@ BOOL IsFrame()
         && (playerPos.X != rectView.left + offset && playerPos.X != rectView.right - offset)) return false;
 
     return true;
+}
+
+BOOL IsInPolygon()
+{
+    int maxX = bufferPoints[0].x;
+    int minX = bufferPoints[0].x;
+
+    for (int i = 0; i < bufferPoints.size(); i++)
+    {
+        if (bufferPoints[i].x > maxX) maxX = bufferPoints[i].x;
+        else if (bufferPoints[i].x < minX) minX = bufferPoints[i].x;
+    }
+
+    std::vector<int> yPoints;
+    for (int i = minX; i < maxX; i += playerSpeed) // minX -> maxX 로 한줄씩 그리면서 
+    {
+        for (int j = 0; j < bufferPoints.size(); j++)
+        {
+            if (bufferPoints[j].x == i)
+                yPoints.push_back(bufferPoints[j].y);
+        }
+
+        SortArr(yPoints);
+        for (int j = 0; j < yPoints.size(); j += 2)
+        {
+            if (playerPos.X >= i && playerPos.X <= i + playerSpeed && playerPos.Y >= yPoints[j] && playerPos.Y <= yPoints[j + 1])
+                return true;
+        }
+    }
+
+    return false;
 }
 
 void DrawLine(Graphics& graphics)
@@ -403,9 +443,47 @@ void DrawLine(Graphics& graphics)
     }
 }
 
-void DrawPolygon(HDC hdc)
+void DrawRectangle(HDC hdc)
 {
-    //Polygon(hdc, );
+    if (bufferPoints.size() > _msize(drawPoints) / sizeof(drawPoints))
+    {
+        POINT* newPoints = new POINT[_msize(drawPoints) / sizeof(drawPoints) + 100]();
+        delete[](drawPoints);
+        drawPoints = newPoints;
+        newPoints = NULL;
+    }
+
+    for (int i = 0; i < bufferPoints.size(); i++)
+    {
+        drawPoints[i] = bufferPoints[i];
+    }
+
+    Polygon(hdc, drawPoints, bufferPoints.size());
+    
+    //int maxX = bufferPoints[0].x;
+    //int minX = bufferPoints[0].x;
+
+    //for (int i = 0; i < bufferPoints.size(); i++)
+    //{
+    //    if (bufferPoints[i].x > maxX) maxX = bufferPoints[i].x;
+    //    else if (bufferPoints[i].x < minX) minX = bufferPoints[i].x;
+    //}
+    //
+    //std::vector<int> yPoints;
+    //for (int i = minX; i < maxX; i+= playerSpeed) // minX -> maxX 로 한줄씩 그리면서 
+    //{
+    //    for (int j = 0; j < bufferPoints.size(); j++)
+    //    {
+    //        if (bufferPoints[j].x == i)
+    //            yPoints.push_back(bufferPoints[j].y);
+    //    }
+
+    //    SortArr(yPoints);
+    //    for (int j = 0; j < yPoints.size(); j += 2)
+    //    {
+    //        Rectangle(hdc, i, yPoints[j], i + playerSpeed + 1, yPoints[j + 1]);
+    //    }
+    //}
 }
 
 void UpdateMovePoint(float speed)
@@ -451,35 +529,52 @@ void UpdatePolygonPoint()
         InitStartPoint();
     }
 
-    if (bufferPoints.size() > _msize(polygonPoints))
-    {
-        POINT* newPoint = new POINT[_msize(polygonPoints) + 100];
-        delete[] polygonPoints;
-        polygonPoints = newPoint;
-        delete[] newPoint;
-    }
-
     for (int i = 0; i < bufferPoints.size(); i++)
     {
         bufferPoints[i].x -= drawOffset;
         bufferPoints[i].y -= drawOffset;
-
-        polygonPoints[i] = bufferPoints[i];
     }
 }
 
 void InitStartPoint()
 {
+    InitPolygon();
+
     if (movePoints.empty() == true)
     {
-        POINT point = { playerPos.X,playerPos.Y };
+        POINT point = { bufferPoints[0].x + drawOffset, bufferPoints[0].y + drawOffset };
         movePoints.push_back(point);
+        playerPos.X = point.x;
+        playerPos.Y = point.y;
     }
 }
 
 void InitPolygon()
 {
     // 랜덤으로 사각형의 polygon생성 거기서부터 플레이어가 시작할 수 있도록 세팅
+    drawPoints = new POINT[1]();
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    
+    std::uniform_int_distribution<int> x(rectView.left, rectView.right - 300);
+    std::uniform_int_distribution<int> width(5, 20);
+
+    std::uniform_int_distribution<int> y(rectView.top, rectView.bottom - 300);
+    std::uniform_int_distribution<int> height(5, 20);
+
+    int xx = (x(gen) / 10) * 10;
+    int w = width(gen) * 10;
+    int yy = (y(gen) / 10) * 10;
+    int h = height(gen) * 10;
+
+    POINT points[4] = { {xx,yy}, {xx + w,yy}, {xx + w,yy + h}, {xx,yy + h} };
+
+    for (int i = 0; i < 4; i++)
+    {
+        bufferPoints.push_back(points[i]);
+        drawPoints[i] = points[i];
+    }
 }
 
 void MoveToX(float speed)
@@ -537,6 +632,22 @@ void MoveToY(float speed)
 
         POINT point = { movePoints[movePoints.size() - 1].x, playerPos.Y };
         movePoints[movePoints.size() - 1] = point;
+    }
+}
+
+void SortArr(std::vector<int>& vec)
+{
+    for (int i = 0; i < vec.size() - 1; i++)
+    {
+        for (int j = i + 1; j < vec.size(); j++)
+        {
+            if (vec[j] < vec[i])
+            {
+                int temp = vec[i];
+                vec[i] = vec[j];
+                vec[j] = temp;
+            }
+        }
     }
 }
 
@@ -616,7 +727,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     switch (message)
     {
     case WM_CREATE:
-        SetTimer(hWnd, IDT_TIMER1, 10, NULL);
+        SetTimer(hWnd, IDT_TIMER1, 16, NULL);
         GetClientRect(hWnd, &rectView);
         InitStartPoint();
         
