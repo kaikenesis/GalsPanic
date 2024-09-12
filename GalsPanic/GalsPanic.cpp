@@ -37,13 +37,15 @@ void DrawBitmapDoubleBuffering(HWND hWnd, HDC hdc);
 void DeleteBitmap();
 void UpdatePlayerPos();
 
+HBITMAP hBackgroundImage;
+BITMAP bitBackground;
 HBITMAP hBackImage;
 BITMAP bitBack;
 HBITMAP hFrontImage;
 BITMAP bitFront;
 HBITMAP hDoubleBufferImage;
 RECT rectView;
-Gdiplus::PointF playerPos = { 10, 10 };
+Gdiplus::PointF playerPos = { 0, 0 };
 
 #define WINDOW_SIZE_X 720
 #define WINDOW_SIZE_Y 953
@@ -53,6 +55,7 @@ int drawOffset = 10;
 
 // System
 BOOL IsSafe();
+BOOL IsInFrame(std::vector<POINT> points, int inX, int inY);
 BOOL IsInPolygon(std::vector<POINT> points, int inX, int inY);
 void DrawLine(Graphics& graphics);
 void DrawRectangle(HDC hdc);
@@ -62,7 +65,6 @@ void InitStartPoint(int inX, int inY);
 void InitPolygon();
 void MoveToX(float speed);
 void MoveToY(float speed);
-void SortArr(std::vector<int>& vec);
 
 enum EMoveDir
 {
@@ -175,7 +177,7 @@ void Gdi_Draw(HDC hdc)
         Matrix mat;
         static int rot = 0;
 
-        mat.RotateAt((rot % 360), PointF(playerPos.X, playerPos.Y));
+        mat.RotateAt((rot % 360), PointF(playerPos.X+ offset, playerPos.Y+ offset));
         graphics.SetTransform(&mat);
 
         if(IsSafe())
@@ -205,7 +207,8 @@ void Gdi_Draw(HDC hdc)
             imgAttr.SetColorMatrix(&colorMatrix);
         }
 
-        graphics.DrawImage(pImg, Rect((int)playerPos.X - w / 2, (int)playerPos.Y - h / 2, w, h), 0, 0, w * 1.5, h * 1.5, UnitPixel, &imgAttr);
+        graphics.DrawImage(pImg, Rect((int)playerPos.X + offset - w / 2, (int)playerPos.Y + offset - h / 2, w, h),
+            0, 0, w * 1.5, h * 1.5, UnitPixel, &imgAttr);
         rot -= 20;
 
         mat.Reset();
@@ -224,7 +227,17 @@ void Gdi_End()
 
 void CreateBitmap()
 {
-    // backGround image
+    // background image
+    hBackgroundImage = (HBITMAP)LoadImage(NULL, _T("images/Maxim.bmp"), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION);
+    if (hBackgroundImage == NULL)
+    {
+        DWORD dwError = GetLastError();
+        MessageBox(NULL, _T("backGround Image load error"), _T("Error"), MB_OK);
+    }
+    else
+        GetObject(hBackgroundImage, sizeof(BITMAP), &bitBackground);
+
+    // back image
     hBackImage = (HBITMAP)LoadImage(NULL, _T("images/Maxim.bmp"),IMAGE_BITMAP,0,0,LR_LOADFROMFILE | LR_CREATEDIBSECTION);
     if (hBackImage == NULL)
     {
@@ -235,7 +248,6 @@ void CreateBitmap()
         GetObject(hBackImage, sizeof(BITMAP), &bitBack);
     
     // front Image
-    // TODO: 경로입력
     hFrontImage = (HBITMAP)LoadImage(NULL, _T("images/FrontMaxim.bmp"), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION);
     if (hFrontImage == NULL)
     {
@@ -254,15 +266,36 @@ void DrawBitmap(HWND hWnd, HDC hdc)
     HBITMAP hOldBitmap;
     int bx, by;
 
-    // backGround
+    // background
+    {
+        hMemDC = CreateCompatibleDC(hdc);
+        hOldBitmap = (HBITMAP)SelectObject(hMemDC, hBackgroundImage);
+        bx = bitBackground.bmWidth;
+        by = bitBackground.bmHeight; 
+
+        HBRUSH hBrush = CreateSolidBrush(RGB(255, 255, 255));
+        HBRUSH oldBrush = (HBRUSH)SelectObject(hMemDC, hBrush);
+        Rectangle(hMemDC, 0, 0, bx, by);
+
+        SelectObject(hMemDC, oldBrush);
+        DeleteObject(hBrush);
+
+        BitBlt(hdc, 0, 0, bx, by, hMemDC, 0, 0, SRCCOPY);
+        StretchBlt(hdc, 0, 0, bx+offset*2, by+offset * 2, hMemDC, 0, 0, bx, by, SRCCOPY);
+
+        SelectObject(hMemDC, hOldBitmap);
+        DeleteDC(hMemDC);
+    }
+
+    // back
     {
         hMemDC = CreateCompatibleDC(hdc);
         hOldBitmap = (HBITMAP)SelectObject(hMemDC, hBackImage);
         bx = bitBack.bmWidth;
         by = bitBack.bmHeight;
 
-        BitBlt(hdc, 10, 10, bx, by, hMemDC, 0, 0, SRCCOPY);
-        StretchBlt(hdc, 10, 10, bx, by, hMemDC, 0, 0, bx, by, SRCCOPY);
+        BitBlt(hdc, offset, offset, bx, by, hMemDC, 0, 0, SRCCOPY);
+        StretchBlt(hdc, offset, offset, bx, by, hMemDC, 0, 0, bx, by, SRCCOPY);
         
         SelectObject(hMemDC, hOldBitmap);
         DeleteDC(hMemDC);
@@ -274,7 +307,9 @@ void DrawBitmap(HWND hWnd, HDC hdc)
     {
         hFrontMemDC = CreateCompatibleDC(hdc);
         hFrontOldBitmap = (HBITMAP)SelectObject(hFrontMemDC, hFrontImage);
-        
+        bx = bitFront.bmWidth;
+        by = bitFront.bmHeight;
+
         HBRUSH hBrush = CreateSolidBrush(RGB(100, 100, 100));
         HBRUSH oldBrush = (HBRUSH)SelectObject(hFrontMemDC, hBrush);
         Rectangle(hFrontMemDC, 0, 0, bx, by);
@@ -282,24 +317,17 @@ void DrawBitmap(HWND hWnd, HDC hdc)
         // -> 땅따먹기 성공한 구역 Rectangle그려주기
         if(polygonPoints.empty() == false)
         {
-            HPEN myPen = CreatePen(PS_NULL, 0, RGB(255, 0, 255));
-            HGDIOBJ oldPen = SelectObject(hFrontMemDC, myPen);
-            
             hBrush = CreateSolidBrush(RGB(255, 0, 255));
             oldBrush = (HBRUSH)SelectObject(hFrontMemDC, hBrush);
             
             DrawRectangle(hFrontMemDC);
-
-            SelectObject(hFrontMemDC, oldPen);
-            DeleteObject(myPen);
 
             SelectObject(hFrontMemDC, oldBrush);
             DeleteObject(hBrush);
             
         }
         
-        
-        TransparentBlt(hdc, 10, 10, bx, by, hFrontMemDC, 0, 0, bx, by, RGB(255, 0, 255));
+        TransparentBlt(hdc, offset, offset, bx, by, hFrontMemDC, 0, 0, bx, by, RGB(255, 0, 255));
         SelectObject(hFrontMemDC, hFrontOldBitmap);
         DeleteDC(hFrontMemDC);
     }
@@ -341,12 +369,14 @@ void UpdatePlayerPos()
     if (newTime - oldTime < 20)
         return;
     oldTime = newTime;
+    
 
     if (GetAsyncKeyState(VK_LEFT) & 0x8000)
     {
         if (playerPos.X - playerSpeed < rectView.left + offset)
             playerPos.X = rectView.left + offset;
-        else
+        else if(IsInFrame(polygonPoints, playerPos.X - playerSpeed, playerPos.Y) == true
+            || IsInPolygon(polygonPoints, playerPos.X - playerSpeed, playerPos.Y) == false)
             playerPos.X -= playerSpeed;
 
         UpdateMovePoint(-playerSpeed);
@@ -355,7 +385,8 @@ void UpdatePlayerPos()
     {
         if (playerPos.X + playerSpeed > rectView.right - offset)
             playerPos.X = rectView.right - offset;
-        else
+        else if (IsInFrame(polygonPoints, playerPos.X + playerSpeed, playerPos.Y) == true
+            || IsInPolygon(polygonPoints, playerPos.X + playerSpeed, playerPos.Y) == false)
             playerPos.X += playerSpeed;
 
         UpdateMovePoint(playerSpeed);
@@ -364,7 +395,8 @@ void UpdatePlayerPos()
     {
         if (playerPos.Y - playerSpeed < rectView.top + offset)
             playerPos.Y = rectView.top + offset;
-        else
+        else if (IsInFrame(polygonPoints, playerPos.X, playerPos.Y - playerSpeed) == true
+            || IsInPolygon(polygonPoints, playerPos.X, playerPos.Y - playerSpeed) == false)
             playerPos.Y -= playerSpeed;
 
         UpdateMovePoint(-playerSpeed);
@@ -373,7 +405,8 @@ void UpdatePlayerPos()
     {
         if (playerPos.Y + playerSpeed > rectView.bottom - offset)
             playerPos.Y = rectView.bottom - offset;
-        else
+        else if (IsInFrame(polygonPoints, playerPos.X, playerPos.Y + playerSpeed) == true
+            || IsInPolygon(polygonPoints, playerPos.X, playerPos.Y + playerSpeed) == false)
             playerPos.Y += playerSpeed;
 
         UpdateMovePoint(playerSpeed);
@@ -383,9 +416,38 @@ void UpdatePlayerPos()
 
 BOOL IsSafe()
 {
-    if (IsInPolygon(polygonPoints, playerPos.X, playerPos.Y) == false) return false;
+    if (IsInFrame(polygonPoints, playerPos.X, playerPos.Y) == false) return false;
+
 
     return true;
+}
+
+BOOL IsInFrame(std::vector<POINT> points, int inX, int inY)
+{
+    int maxY = points[0].y;
+    int minY = points[0].y;
+    int n = points.size();
+    for (int i = 0; i < n; i++)
+    {
+        if (points[i].y > maxY) maxY = points[i].y;
+        else if (points[i].y < minY) minY = points[i].y;
+    }
+
+    if (inY > maxY || inY < minY) return false;
+
+    int crossCount = 0;
+    for (int i = 0; i < n; i++)
+    {
+        POINT p1 = points[i];
+        POINT p2 = points[(i + 1) % n];
+
+        if ((inX == p1.x && inX == p2.x) && ((inY <= p1.y && inY >= p2.y) || (inY <= p2.y && inY >= p1.y)))
+            return true;
+        else if ((inY == p1.y && inY == p2.y) && ((inX <= p1.x && inX >= p2.x) || (inX <= p2.x && inX >= p1.x)))
+            return true;
+    }
+
+    return false;
 }
 
 BOOL IsInPolygon(std::vector<POINT> points, int inX, int inY)
@@ -410,7 +472,8 @@ BOOL IsInPolygon(std::vector<POINT> points, int inX, int inY)
         if ((inY > min(p1.y, p2.y)) && (inY <= max(p1.y, p2.y)) && (inX <= max(p1.x, p2.x)))
         {
             double xIntersect = (inY - p1.y) * (p2.x - p1.x) / (p2.y - p1.y) + p1.x;
-            if (p1.x == p2.x || inX <= xIntersect) {
+            if (p1.x == p2.x || inX <= xIntersect)
+            {
                 crossCount++;
             }
         }
@@ -427,7 +490,8 @@ void DrawLine(Graphics& graphics)
     {
         for (int i = 0; i < movePoints.size() - 1; i++)
         {
-            graphics.DrawLine(&pen, (INT)movePoints[i].x, (INT)movePoints[i].y, (INT)movePoints[i + 1].x, (INT)movePoints[i + 1].y);
+            graphics.DrawLine(&pen, (INT)movePoints[i].x + offset, (INT)movePoints[i].y + offset,
+                (INT)movePoints[i + 1].x + offset, (INT)movePoints[i + 1].y + offset);
         }
     }
 }
@@ -482,60 +546,107 @@ void UpdateMovePoint(float speed)
 
 void UpdatePolygonPoint()
 {
-    std::vector<POINT> frontBuffer;
-    std::vector<POINT> backBuffer;
+    std::vector<POINT> frontPoints;
+    std::vector<POINT> backPoints;
+
     bool bStart = false;
     for (int i = 0; i < polygonPoints.size(); i++)
     {
-        // 새로 그린 다각형내부에 점이 있는 경우
-        if (IsInPolygon(movePoints, polygonPoints[i].x, polygonPoints[i].y) == false)
+        if (bStart == false && IsInPolygon(movePoints, polygonPoints[i].x, polygonPoints[i].y) == true)
         {
-            if (bStart == false)
-                frontBuffer.push_back(polygonPoints[i]);
+            if (IsInFrame(movePoints, polygonPoints[i].x, polygonPoints[i].y) == true)
+                bStart = true;
             else
-                backBuffer.push_back(polygonPoints[i]);
+            {
+                frontPoints.push_back(polygonPoints[i]);
+                bStart = true;
+            }
         }
         else
         {
-            bStart = true;
+            if (IsInFrame(movePoints, polygonPoints[i].x, polygonPoints[i].y) == true)
+                bStart = true;
+            else
+            {
+                if (bStart == false)
+                    frontPoints.push_back(polygonPoints[i]);
+                else
+                    backPoints.push_back(polygonPoints[i]);
+            }
         }
-        // 없는 경우
+        
     }
 
+    //for (int i = 0; i < polygonPoints.size(); i++)
+    //{
+    //    bool bInPolygon = false;
+    //    // 새로 그린 다각형내부에 점이 있는 경우
+    //    if (bStart == false && IsInPolygon(movePoints, polygonPoints[i].x, polygonPoints[i].y) == true)
+    //    {
+    //        bStart = true;
+    //        bInPolygon = true;
+    //        continue;
+    //    }
+
+    //    if (bStart == false && bInPolygon == false)
+    //    {
+    //        // 새로 그린 다각형내부에 점이 없고, 기존 다각형모서리에 새로 그린 다각형의 점이 있는 경우
+    //        for (int j = 0; j < movePoints.size(); j++)
+    //        {
+    //            if (IsInFrame(polygonPoints, movePoints[j].x, movePoints[j].y) == true)
+    //            {
+    //                bStart = true;
+    //                break;
+    //            }
+    //        }
+    //    }
+    //}
+
     polygonPoints.clear();
-    for (int i = 0; i < frontBuffer.size(); i++)
+    std::vector<POINT> buffer;
+
+    for (int i = 0; i < frontPoints.size(); i++)
     {
-        POINT point = { frontBuffer[i].x, frontBuffer[i].y};
-        polygonPoints.push_back(point);
+        POINT point = { frontPoints[i].x, frontPoints[i].y};
+        buffer.push_back(point);
     }
     for (int i = 0; i < movePoints.size(); i++)
     {
-        POINT point = { movePoints[i].x - drawOffset, movePoints[i].y - drawOffset };
-        polygonPoints.push_back(point);
+        POINT point = { movePoints[i].x, movePoints[i].y};
+        buffer.push_back(point);
     }
-    for (int i = 0; i < backBuffer.size(); i++)
+    for (int i = 0; i < backPoints.size(); i++)
     {
-        POINT point = { backBuffer[i].x, backBuffer[i].y};
-        polygonPoints.push_back(point);
+        POINT point = { backPoints[i].x, backPoints[i].y};
+        buffer.push_back(point);
     }
-    
     movePoints.clear();
-    /*while (movePoints.empty() == false)
+    
+    for (int i = 0; i < buffer.size(); i++)
     {
-        movePoints.pop_back();
-    }*/
+        int x1 = buffer[(i - 1 + buffer.size()) % buffer.size()].x;
+        int y1 = buffer[(i - 1 + buffer.size()) % buffer.size()].y;
+        int x2 = buffer[(i + 1) % buffer.size()].x;
+        int y2 = buffer[(i + 1) % buffer.size()].y;
+
+        if ((buffer[i].x != x1 || buffer[i].x != x2) && (buffer[i].y != y1 || buffer[i].y != y2))
+        {
+            polygonPoints.push_back(buffer[i]);
+        }
+    }
 
     if (movePoints.empty())
     {
         InitStartPoint(playerPos.X, playerPos.Y);
     }
+    eDir = None;
 }
 
 void InitStartPoint(int inX, int inY)
 {
     if (movePoints.empty() == true)
     {
-        POINT point = { inX + drawOffset, inY + drawOffset };
+        POINT point = { inX, inY };
         movePoints.push_back(point);
         playerPos.X = point.x;
         playerPos.Y = point.y;
@@ -628,22 +739,6 @@ void MoveToY(float speed)
     }
 }
 
-void SortArr(std::vector<int>& vec)
-{
-    for (int i = 0; i < vec.size() - 1; i++)
-    {
-        for (int j = i + 1; j < vec.size(); j++)
-        {
-            if (vec[j] < vec[i])
-            {
-                int temp = vec[i];
-                vec[i] = vec[j];
-                vec[j] = temp;
-            }
-        }
-    }
-}
-
 //==============================================================================================
 //
 //  FUNCTION: MyRegisterClass()
@@ -689,7 +784,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    CreateBitmap();
    Gdi_Init();
 
-   RECT rt = { 0, 0, bitBack.bmWidth + 20, bitBack.bmHeight + 40 };
+   RECT rt = { 0, 0, bitBack.bmWidth + offset * 2, bitBack.bmHeight + offset * 4 };
    AdjustWindowRect(&rt, WS_OVERLAPPEDWINDOW, 0);
    HWND g_hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
        50, 50, rt.right - rt.left, rt.bottom - rt.top, nullptr, nullptr, hInstance, nullptr);
@@ -720,7 +815,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     switch (message)
     {
     case WM_CREATE:
-        SetTimer(hWnd, IDT_TIMER1, 16, NULL);
+        SetTimer(hWnd, IDT_TIMER1, 33, NULL);
         GetClientRect(hWnd, &rectView);
         InitPolygon();
         InitStartPoint(polygonPoints[0].x, polygonPoints[0].y);
@@ -763,6 +858,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             // TODO: Add any drawing code that uses hdc here...
 
             DrawBitmapDoubleBuffering(hWnd, hdc);
+
+            TCHAR str[128];
+            wsprintf(str, _T("Position : (%04d,%04d)"), (int)playerPos.X, (int)playerPos.Y);
+            TextOut(hdc, 20, 20, str, lstrlen(str));
 
             EndPaint(hWnd, &ps);
         }
