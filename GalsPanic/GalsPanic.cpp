@@ -418,7 +418,6 @@ BOOL IsSafe()
 {
     if (IsInFrame(polygonPoints, playerPos.X, playerPos.Y) == false) return false;
 
-
     return true;
 }
 
@@ -463,7 +462,7 @@ BOOL IsInPolygon(std::vector<POINT> points, int inX, int inY)
 
     if (inY > maxY || inY < minY) return false;
 
-    int crossCount = 0;
+    int crossCount = 0; 
     for (int i = 0; i < n; i++)
     {
         POINT p1 = points[i];
@@ -549,13 +548,68 @@ void UpdatePolygonPoint()
     std::vector<POINT> frontPoints;
     std::vector<POINT> backPoints;
 
+    int startMPointX = movePoints[0].x;
+    int startMPointY = movePoints[0].y;
+    int endMPointX = movePoints[movePoints.size() - 1].x;
+    int endMPointY = movePoints[movePoints.size() - 1].y;
+
+    // 저장된 movepoints가 3개일 경우 밑에 polygon내부에 있는지의 처리가 성립하지 않음
     bool bStart = false;
+    bool bEnd = false;
+    bool bReverse = false;
     for (int i = 0; i < polygonPoints.size(); i++)
+    {
+        int x1 = polygonPoints[i % polygonPoints.size()].x;
+        int y1 = polygonPoints[i % polygonPoints.size()].y;
+        int x2 = polygonPoints[(i + 1) % polygonPoints.size()].x;
+        int y2 = polygonPoints[(i + 1) % polygonPoints.size()].y;
+
+        if (((startMPointX == x1 && startMPointX == x2) || (startMPointY == y1 && startMPointY == y2))
+            && !((endMPointX == x1 && endMPointX == x2) || (endMPointY == y1 && endMPointY == y2)))
+        {
+            bStart = true;
+        }
+        else if (!((startMPointX == x1 && startMPointX == x2) || (startMPointY == y1 && startMPointY == y2))
+            && ((endMPointX == x1 && endMPointX == x2) || (endMPointY == y1 && endMPointY == y2)))
+        {
+            bEnd = true;
+            if (bStart == false)
+                bReverse = true;
+        }
+        else if (((startMPointX == x1 && startMPointX == x2) || (startMPointY == y1 && startMPointY == y2))
+            || ((endMPointX == x1 && endMPointX == x2) || (endMPointY == y1 && endMPointY == y2)))
+        {
+            bStart = true;
+            frontPoints.push_back(polygonPoints[i]);
+            if (startMPointX == endMPointX)
+            {
+                if (abs(endMPointY - y1) < abs(startMPointY - y1))
+                    bReverse = true;
+            }
+            else if (startMPointY == endMPointY)
+            {
+                if (abs(endMPointX - x1) < abs(startMPointX - x1))
+                    bReverse = true;
+            }
+        }
+        else
+        {
+            if (bStart == false)
+                frontPoints.push_back(polygonPoints[i]);
+            else
+                backPoints.push_back(polygonPoints[i]);
+        }
+    }
+
+    /*for (int i = 0; i < polygonPoints.size(); i++)
     {
         if (bStart == false && IsInPolygon(movePoints, polygonPoints[i].x, polygonPoints[i].y) == true)
         {
             if (IsInFrame(movePoints, polygonPoints[i].x, polygonPoints[i].y) == true)
+            {
                 bStart = true;
+
+            }
             else
             {
                 frontPoints.push_back(polygonPoints[i]);
@@ -565,7 +619,10 @@ void UpdatePolygonPoint()
         else
         {
             if (IsInFrame(movePoints, polygonPoints[i].x, polygonPoints[i].y) == true)
+            {
                 bStart = true;
+                frontPoints.push_back(polygonPoints[i]);
+            }
             else
             {
                 if (bStart == false)
@@ -574,33 +631,8 @@ void UpdatePolygonPoint()
                     backPoints.push_back(polygonPoints[i]);
             }
         }
-        
-    }
 
-    //for (int i = 0; i < polygonPoints.size(); i++)
-    //{
-    //    bool bInPolygon = false;
-    //    // 새로 그린 다각형내부에 점이 있는 경우
-    //    if (bStart == false && IsInPolygon(movePoints, polygonPoints[i].x, polygonPoints[i].y) == true)
-    //    {
-    //        bStart = true;
-    //        bInPolygon = true;
-    //        continue;
-    //    }
-
-    //    if (bStart == false && bInPolygon == false)
-    //    {
-    //        // 새로 그린 다각형내부에 점이 없고, 기존 다각형모서리에 새로 그린 다각형의 점이 있는 경우
-    //        for (int j = 0; j < movePoints.size(); j++)
-    //        {
-    //            if (IsInFrame(polygonPoints, movePoints[j].x, movePoints[j].y) == true)
-    //            {
-    //                bStart = true;
-    //                break;
-    //            }
-    //        }
-    //    }
-    //}
+    }*/
 
     polygonPoints.clear();
     std::vector<POINT> buffer;
@@ -612,7 +644,11 @@ void UpdatePolygonPoint()
     }
     for (int i = 0; i < movePoints.size(); i++)
     {
-        POINT point = { movePoints[i].x, movePoints[i].y};
+        POINT point;
+        if (bReverse == false)
+            point = { movePoints[i].x, movePoints[i].y };
+        else
+            point = { movePoints[(movePoints.size() - 1) - i].x, movePoints[(movePoints.size() - 1) - i].y };
         buffer.push_back(point);
     }
     for (int i = 0; i < backPoints.size(); i++)
