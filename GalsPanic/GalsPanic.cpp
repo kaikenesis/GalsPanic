@@ -547,115 +547,277 @@ void UpdatePolygonPoint()
 {
     std::vector<POINT> frontPoints;
     std::vector<POINT> backPoints;
+    std::vector<POINT> buffer;
 
-    int startMPointX = movePoints[0].x;
-    int startMPointY = movePoints[0].y;
-    int endMPointX = movePoints[movePoints.size() - 1].x;
-    int endMPointY = movePoints[movePoints.size() - 1].y;
+    POINT startPos = movePoints[0];
+    POINT endPos = movePoints[movePoints.size() - 1];
 
-    // 저장된 movepoints가 3개일 경우 밑에 polygon내부에 있는지의 처리가 성립하지 않음
+    /*
+        new폴리곤 점 개수가 5이상일 경우
+        기존 폴리곤에서 시작점부터 체크해서 새로 그린 폴리곤의 시작 또는 끝점에 만날 경우
+        앞에 체크된 기존 폴리곤의 점들과 새로 그린 폴리곤의 점들로 새로 그려지는 영역을 그리고
+        해당 영역에 체크가 안된 기존 폴리곤의 점들이 포함 된다면 체크된 점들을 저장,
+        포함되지 않는다면 체크가 안된 점들을 저장해서 새로운 폴리곤의 점들과 함께 그리기
+
+        new폴리곤 점 개수가 4이하일 경우
+        처음만난 점에서 다른 점까지의 사이에 기존 폴리곤 점들은 제외
+        대신 만난 점이 시작점인지 끝점인지 판별하고 new폴리곤 점을 넣어줄때 방향에 맞춰서 조정해야함
+    */ 
     bool bStart = false;
     bool bEnd = false;
     bool bReverse = false;
-    for (int i = 0; i < polygonPoints.size(); i++)
-    {
-        int x1 = polygonPoints[i % polygonPoints.size()].x;
-        int y1 = polygonPoints[i % polygonPoints.size()].y;
-        int x2 = polygonPoints[(i + 1) % polygonPoints.size()].x;
-        int y2 = polygonPoints[(i + 1) % polygonPoints.size()].y;
 
-        if (((startMPointX == x1 && startMPointX == x2) || (startMPointY == y1 && startMPointY == y2))
-            && !((endMPointX == x1 && endMPointX == x2) || (endMPointY == y1 && endMPointY == y2)))
+    if (movePoints.size() <= 4) // new폴리곤 점 개수 4이하
+    {
+        for (int i = 0; i < polygonPoints.size(); i++)
         {
-            bStart = true;
-        }
-        else if (!((startMPointX == x1 && startMPointX == x2) || (startMPointY == y1 && startMPointY == y2))
-            && ((endMPointX == x1 && endMPointX == x2) || (endMPointY == y1 && endMPointY == y2)))
-        {
-            bEnd = true;
-            if (bStart == false)
-                bReverse = true;
-        }
-        else if (((startMPointX == x1 && startMPointX == x2) || (startMPointY == y1 && startMPointY == y2))
-            || ((endMPointX == x1 && endMPointX == x2) || (endMPointY == y1 && endMPointY == y2)))
-        {
-            bStart = true;
-            frontPoints.push_back(polygonPoints[i]);
-            if (startMPointX == endMPointX)
+            POINT p1 = polygonPoints[i % polygonPoints.size()];
+            POINT p2 = polygonPoints[(i + 1) % polygonPoints.size()];
+
+            // 세로 모서리
+            if (p1.x == p2.x)
             {
-                if (abs(endMPointY - y1) < abs(startMPointY - y1))
-                    bReverse = true;
+                if (startPos.x == p1.x && endPos.x == p1.x)
+                {
+                    if (abs(startPos.y - p1.y) > abs(endPos.y - p1.y))
+                        bReverse = true;
+                    bStart = true;
+                    bEnd = true;
+                }
+                else if (startPos.x == p1.x)
+                {
+                    if (bStart == false)
+                        bReverse = true;
+                    bEnd = true;
+                }
+                else if (endPos.x == p1.x)
+                {
+                    bStart = true;
+                }
             }
-            else if (startMPointY == endMPointY)
+            // 가로 모서리
+            else if (p1.y == p2.y)
             {
-                if (abs(endMPointX - x1) < abs(startMPointX - x1))
-                    bReverse = true;
+                if (startPos.y == p1.y && endPos.y == p1.y)
+                {
+                    if (abs(startPos.x - p1.x) > abs(endPos.x - p1.x))
+                        bReverse = true;
+                    bStart = true;
+                    bEnd = true;
+                }
+                else if (startPos.y == p1.y)
+                {
+                    bStart = true;
+                }
+                else if (endPos.y == p1.y)
+                {
+                    if (bStart == false)
+                        bReverse = true;
+                    bEnd = true;
+                }
             }
-        }
-        else
-        {
-            if (bStart == false)
+
+            if ((p1.x == startPos.x && p1.y == startPos.y) || (p1.x == endPos.x && p1.y == endPos.y)) continue;
+
+            if (bStart == false && bEnd == false)
                 frontPoints.push_back(polygonPoints[i]);
-            else
+            else if(bStart == true && bEnd == true)
                 backPoints.push_back(polygonPoints[i]);
         }
+
+        for (int i = 0; i < frontPoints.size(); i++)
+        {
+            POINT point = { frontPoints[i].x, frontPoints[i].y };
+            buffer.push_back(point);
+        }
+        for (int i = 0; i < movePoints.size(); i++)
+        {
+            POINT point;
+            if (bReverse == false)
+                point = { movePoints[i].x, movePoints[i].y };
+            else
+                point = { movePoints[(movePoints.size() - 1) - i].x, movePoints[(movePoints.size() - 1) - i].y };
+            buffer.push_back(point);
+        }
+        for (int i = 0; i < backPoints.size(); i++)
+        {
+            POINT point = { backPoints[i].x, backPoints[i].y };
+            buffer.push_back(point);
+        }
     }
-
-    /*for (int i = 0; i < polygonPoints.size(); i++)
+    else // new폴리곤 점 개수 5이상
     {
-        if (bStart == false && IsInPolygon(movePoints, polygonPoints[i].x, polygonPoints[i].y) == true)
-        {
-            if (IsInFrame(movePoints, polygonPoints[i].x, polygonPoints[i].y) == true)
-            {
-                bStart = true;
+        std::vector<POINT> newPolygon;
+        std::vector<POINT> leastPoints;
 
-            }
-            else
-            {
-                frontPoints.push_back(polygonPoints[i]);
-                bStart = true;
-            }
-        }
-        else
+        for (int i = 0; i < polygonPoints.size(); i++)
         {
-            if (IsInFrame(movePoints, polygonPoints[i].x, polygonPoints[i].y) == true)
+            POINT p1 = polygonPoints[i % polygonPoints.size()];
+            POINT p2 = polygonPoints[(i + 1) % polygonPoints.size()];
+
+            // 세로 모서리
+            if (p1.x == p2.x)
             {
-                bStart = true;
-                frontPoints.push_back(polygonPoints[i]);
-            }
-            else
-            {
-                if (bStart == false)
-                    frontPoints.push_back(polygonPoints[i]);
+                if (startPos.x == p1.x && endPos.x == p1.x)
+                {
+                    if (abs(startPos.y - p1.y) > abs(endPos.y - p1.y))
+                        bReverse = true;
+                    bStart = true;
+                    bEnd = true;
+                }
                 else
-                    backPoints.push_back(polygonPoints[i]);
+                {
+                    if (startPos.x == p1.x)
+                    {
+                        if (bStart == false)
+                            bReverse = true;
+                        bEnd = true;
+                    }
+                    else if (endPos.x == p1.x)
+                    {
+                        bStart = true;
+                    }
+
+                    if ((bStart == true && bEnd == false) || (bStart == false && bEnd == true))
+                    {
+                        for (int i = 0; i < frontPoints.size(); i++)
+                        {
+                            POINT point = { frontPoints[i].x, frontPoints[i].y };
+                            newPolygon.push_back(point);
+                        }
+                        for (int i = 0; i < movePoints.size(); i++)
+                        {
+                            POINT point;
+                            if (bReverse == false)
+                                point = { movePoints[i].x, movePoints[i].y };
+                            else
+                                point = { movePoints[(movePoints.size() - 1) - i].x, movePoints[(movePoints.size() - 1) - i].y };
+                            newPolygon.push_back(point);
+                        }
+
+                        // new폴리곤이 그려지는 방향 판별 :
+                        // true -> i+1부터 new폴리곤의 끝점에 도달할때까지의 점들을 제외
+                        // false -> new폴리곤의 시작점이 폴리곤을 그리는 시작점으로 변경되고 i+1 이전의 점들과,
+                        // new폴리곤의 끝점 이후의 점들을 제외
+                        if (IsInPolygon(newPolygon, p2.x, p2.y) || IsInFrame(newPolygon, p2.x, p2.y))
+                        {
+                            for (int i = 0; i < frontPoints.size(); i++)
+                            {
+                                POINT point = { frontPoints[i].x, frontPoints[i].y };
+                                buffer.push_back(point);
+                            }
+                            for (int i = 0; i < movePoints.size(); i++)
+                            {
+                                POINT point;
+                                if (bReverse == false)
+                                    point = { movePoints[i].x, movePoints[i].y };
+                                else
+                                    point = { movePoints[(movePoints.size() - 1) - i].x, movePoints[(movePoints.size() - 1) - i].y };
+                                buffer.push_back(point);
+                            }
+                            break;
+                        }
+                        else
+                        {
+                            for (int i = 0; i < movePoints.size(); i++)
+                            {
+                                POINT point;
+                                if (bReverse == false)
+                                    point = { movePoints[i].x, movePoints[i].y };
+                                else
+                                    point = { movePoints[(movePoints.size() - 1) - i].x, movePoints[(movePoints.size() - 1) - i].y };
+                                buffer.push_back(point);
+                            }
+                            for (int j = i + 1; j < polygonPoints.size(); j++)
+                                buffer.push_back(polygonPoints[j]);
+                            break;
+                        }
+                    }
+                }
+                
             }
+            // 가로 모서리
+            else if (p1.y == p2.y)
+            {
+                if (startPos.y == p1.y && endPos.y == p1.y)
+                {
+                    if (abs(startPos.x - p1.x) > abs(endPos.x - p1.x))
+                        bReverse = true;
+                    bStart = true;
+                    bEnd = true;
+                }
+                else
+                {
+                    if (startPos.y == p1.y)
+                    {
+                        bStart = true;
+                    }
+                    else if (endPos.y == p1.y)
+                    {
+                        if (bStart == false)
+                            bReverse = true;
+                        bEnd = true;
+                    }
+
+                    if ((bStart == true && bEnd == false) || (bStart == false && bEnd == true))
+                    {
+                        for (int i = 0; i < frontPoints.size(); i++)
+                        {
+                            POINT point = { frontPoints[i].x, frontPoints[i].y };
+                            newPolygon.push_back(point);
+                        }
+                        for (int i = 0; i < movePoints.size(); i++)
+                        {
+                            POINT point;
+                            if (bReverse == false)
+                                point = { movePoints[i].x, movePoints[i].y };
+                            else
+                                point = { movePoints[(movePoints.size() - 1) - i].x, movePoints[(movePoints.size() - 1) - i].y };
+                            newPolygon.push_back(point);
+                        }
+
+                        if (IsInPolygon(newPolygon, p2.x, p2.y) || IsInFrame(newPolygon, p2.x, p2.y))
+                        {
+                            
+                        }
+                        else
+                        {
+                            
+                            break;
+                        }
+                    }
+                }
+            }
+            if ((p1.x == startPos.x && p1.y == startPos.y) || (p1.x == endPos.x && p1.y == endPos.y)) continue;
+
+            if (bStart == false && bEnd == false)
+                frontPoints.push_back(polygonPoints[i]);
+            else if (bStart == true && bEnd == true)
+                backPoints.push_back(polygonPoints[i]);
         }
 
-    }*/
+        for (int i = 0; i < frontPoints.size(); i++)
+        {
+            POINT point = { frontPoints[i].x, frontPoints[i].y };
+            buffer.push_back(point);
+        }
+        for (int i = 0; i < movePoints.size(); i++)
+        {
+            POINT point;
+            if (bReverse == false)
+                point = { movePoints[i].x, movePoints[i].y };
+            else
+                point = { movePoints[(movePoints.size() - 1) - i].x, movePoints[(movePoints.size() - 1) - i].y };
+            buffer.push_back(point);
+        }
+        for (int i = 0; i < backPoints.size(); i++)
+        {
+            POINT point = { backPoints[i].x, backPoints[i].y };
+            buffer.push_back(point);
+        }
+    }
 
     polygonPoints.clear();
-    std::vector<POINT> buffer;
-
-    for (int i = 0; i < frontPoints.size(); i++)
-    {
-        POINT point = { frontPoints[i].x, frontPoints[i].y};
-        buffer.push_back(point);
-    }
-    for (int i = 0; i < movePoints.size(); i++)
-    {
-        POINT point;
-        if (bReverse == false)
-            point = { movePoints[i].x, movePoints[i].y };
-        else
-            point = { movePoints[(movePoints.size() - 1) - i].x, movePoints[(movePoints.size() - 1) - i].y };
-        buffer.push_back(point);
-    }
-    for (int i = 0; i < backPoints.size(); i++)
-    {
-        POINT point = { backPoints[i].x, backPoints[i].y};
-        buffer.push_back(point);
-    }
     movePoints.clear();
     
     for (int i = 0; i < buffer.size(); i++)
