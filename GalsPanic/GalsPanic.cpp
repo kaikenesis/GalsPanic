@@ -59,7 +59,7 @@ BOOL IsInFrame(std::vector<POINT> points, int inX, int inY);
 BOOL IsInPolygon(std::vector<POINT> points, int inX, int inY);
 BOOL IsInRange(int inValue, int p1, int p2);
 void DrawLine(Graphics& graphics);
-void DrawRectangle(HDC hdc);
+void DrawPolygon(HDC hdc);
 void UpdateMovePoint(float speed);
 void UpdatePolygonPoint();
 void InitStartPoint(int inX, int inY);
@@ -321,7 +321,7 @@ void DrawBitmap(HWND hWnd, HDC hdc)
             hBrush = CreateSolidBrush(RGB(255, 0, 255));
             oldBrush = (HBRUSH)SelectObject(hFrontMemDC, hBrush);
             
-            DrawRectangle(hFrontMemDC);
+            DrawPolygon(hFrontMemDC);
 
             SelectObject(hFrontMemDC, oldBrush);
             DeleteObject(hBrush);
@@ -384,8 +384,8 @@ void UpdatePlayerPos()
     }
     else if (GetAsyncKeyState(VK_RIGHT) & 0x8000)
     {
-        if (playerPos.X + playerSpeed > rectView.right - offset)
-            playerPos.X = rectView.right - offset;
+        if (playerPos.X + playerSpeed > rectView.right - offset*3)
+            playerPos.X = rectView.right - offset*3;
         else if (IsInFrame(polygonPoints, playerPos.X + playerSpeed, playerPos.Y) == true
             || IsInPolygon(polygonPoints, playerPos.X + playerSpeed, playerPos.Y) == false)
             playerPos.X += playerSpeed;
@@ -404,8 +404,8 @@ void UpdatePlayerPos()
     }
     else if (GetAsyncKeyState(VK_DOWN) & 0x8000)
     {
-        if (playerPos.Y + playerSpeed > rectView.bottom - offset)
-            playerPos.Y = rectView.bottom - offset;
+        if (playerPos.Y + playerSpeed > rectView.bottom - offset*3)
+            playerPos.Y = rectView.bottom - offset*3;
         else if (IsInFrame(polygonPoints, playerPos.X, playerPos.Y + playerSpeed) == true
             || IsInPolygon(polygonPoints, playerPos.X, playerPos.Y + playerSpeed) == false)
             playerPos.Y += playerSpeed;
@@ -503,9 +503,9 @@ void DrawLine(Graphics& graphics)
     }
 }
 
-void DrawRectangle(HDC hdc)
+void DrawPolygon(HDC hdc)
 {
-    if (polygonPoints.size() > arrSize)
+    while (arrSize < polygonPoints.size())
     {
         arrSize += 100;
         POINT* newPoints = new POINT[arrSize]();
@@ -554,6 +554,15 @@ void UpdateMovePoint(float speed)
 
 void UpdatePolygonPoint()
 {
+    /*
+        new폴리곤이 그려지는 방향 판별 : 다음 체크하는 점이 새로 그려지는 영역에 포함되는가?
+        -> new폴리곤의 시작점or끝점에 만나기 전의 frontPoints와 만난 후의 backPoints로 새로 그려지는 영역을 잡아주고,
+        해당 영역에 midPoints[0]의 점이 포함이 되는지로 그려지는 방향을 판단할 수 있음.
+
+        true -> i+1부터 new폴리곤의 시작or끝점에 도달할 때까지의 중간 점들을 제외
+        false -> i+1을 시작점으로 변경하고 i+1 이전의 점들과, 다음 new폴리곤 시작or끝점 이후의 점들을 제외
+    */
+
     std::vector<POINT> frontPoints;
     std::vector<POINT> midPoints;
     std::vector<POINT> backPoints;
@@ -562,24 +571,10 @@ void UpdatePolygonPoint()
     POINT startPos = movePoints[0];
     POINT endPos = movePoints[movePoints.size() - 1];
 
-    /*
-        new폴리곤 점 개수가 5이상일 경우
-        기존 폴리곤에서 시작점부터 체크해서 새로 그린 폴리곤의 시작 또는 끝점에 만날 경우
-        앞에 체크된 기존 폴리곤의 점들과 새로 그린 폴리곤의 점들로 새로 그려지는 영역을 그리고
-        해당 영역에 체크가 안된 기존 폴리곤의 점들이 포함 된다면 체크된 점들을 저장,
-        포함되지 않는다면 체크가 안된 점들을 저장해서 새로운 폴리곤의 점들과 함께 그리기
-
-        new폴리곤 점 개수가 4이하일 경우
-        처음만난 점에서 다른 점까지의 사이에 기존 폴리곤 점들은 제외
-        대신 만난 점이 시작점인지 끝점인지 판별하고 new폴리곤 점을 넣어줄때 방향에 맞춰서 조정해야함
-    */ 
     bool bStart = false;
     bool bEnd = false;
     bool bReverse = false;
-    bool bCheck = true; // 이후에 체크하는 점들을 포함하는가?
-
-    std::vector<POINT> newPolygon;
-    
+    bool bCheck = true; // midPoint[0]가 새로 그려진 영역에 포함되는가?
 
     for (int i = 0; i < polygonPoints.size(); i++)
     {
@@ -611,81 +606,15 @@ void UpdatePolygonPoint()
             }
             else if ((startPos.x == p1.x && bStart == false && IsInRange(startPos.y,p1.y,p2.y)) || (endPos.x == p1.x && bEnd == false && IsInRange(endPos.y, p1.y, p2.y)))
             {
-                if (startPos.x == p1.x)
+                if (startPos.x == p1.x && bStart == false)
                 {
                     bStart = true;
                 }
-                else if (endPos.x == p1.x)
+                else if (endPos.x == p1.x && bEnd == false)
                 {
                     if (bStart == false)
                         bReverse = true;
                     bEnd = true;
-                }
-
-                if (movePoints.size() > 4 && ((bStart == true && bEnd == false) || (bStart == false && bEnd == true)))
-                {
-                    // new폴리곤 새로그려지는 공간에 필요한 점 임시로 만들기
-                    std::vector<POINT> tempPoints;
-                    for (int j = i + 1; j < polygonPoints.size(); j++)
-                    {
-                        POINT temp1 = polygonPoints[j % polygonPoints.size()];
-                        POINT temp2 = polygonPoints[(j + 1) % polygonPoints.size()];
-
-                        tempPoints.push_back(temp1);
-
-                        if (temp1.x == temp2.x)
-                        {
-                            if ((startPos.x == temp1.x && bStart == false && IsInRange(startPos.y, temp1.y, temp2.y))
-                                || (endPos.x == temp1.x && bEnd == false && IsInRange(endPos.y, temp1.y, temp2.y)))
-                                break;
-                        }
-                        else if (temp1.y == temp2.y)
-                        {
-                            if (((startPos.y == temp1.y && bStart == false && IsInRange(startPos.x, temp1.x, temp2.x))
-                                || (endPos.y == temp1.y && bEnd == false && IsInRange(endPos.x, temp1.x, temp2.x))))
-                                break;
-                        }
-                    }
-
-                    for (int j = 0; j < tempPoints.size(); j++)
-                    {
-                        POINT point = { tempPoints[j].x, tempPoints[j].y };
-                        newPolygon.push_back(point);
-                    }
-                    for (int j = 0; j < movePoints.size(); j++)
-                    {
-                        POINT point;
-                        if (bReverse == false)
-                            point = { movePoints[(movePoints.size() - 1) - j].x, movePoints[(movePoints.size() - 1) - j].y };
-                        else
-                            point = { movePoints[j].x, movePoints[j].y };
-                        newPolygon.push_back(point);
-                    }
-
-                    /*for (int j = 0; j < frontPoints.size(); j++)
-                    {
-                        POINT point = { frontPoints[j].x, frontPoints[j].y };
-                        newPolygon.push_back(point);
-                    }
-                    for (int j = 0; j < movePoints.size(); j++)
-                    {
-                        POINT point;
-                        if (bReverse == false)
-                            point = { movePoints[j].x, movePoints[j].y };
-                        else
-                            point = { movePoints[(movePoints.size() - 1) - j].x, movePoints[(movePoints.size() - 1) - j].y };
-                        newPolygon.push_back(point);
-                    }*/
-
-                    // new폴리곤이 그려지는 방향 판별 : 다음 체크하는 점이 새로운 폴리곤에 포함되는가?
-                    // 
-                    // true -> i+1부터 new폴리곤의 시작or끝점에 도달할 때까지의 중간 점들을 제외
-                    // false -> i+1을 시작점으로 변경하고 i+1 이전의 점들과, 다음 new폴리곤 시작or끝점 이후의 점들을 제외
-                    // 
-                    if (IsInPolygon(newPolygon, p2.x, p2.y) || IsInFrame(newPolygon, p2.x, p2.y))
-                        bCheck = true;
-                    else
-                        bCheck = false;
                 }
             }
             
@@ -693,7 +622,6 @@ void UpdatePolygonPoint()
         // 가로 모서리
         else if (p1.y == p2.y)
         {
-            // TODO : x 범위 정해주기
             if ((startPos.y == p1.y && bStart == false && IsInRange(startPos.x, p1.x, p2.x)) && (endPos.y == p1.y && bEnd == false && IsInRange(endPos.x, p1.x, p2.x)))
             {
                 if (abs(startPos.x - p1.x) > abs(endPos.x - p1.x))
@@ -703,77 +631,47 @@ void UpdatePolygonPoint()
             }
             else if ((startPos.y == p1.y && bStart == false && IsInRange(startPos.x, p1.x, p2.x)) || (endPos.y == p1.y && bEnd == false && IsInRange(endPos.x, p1.x, p2.x)))
             {
-                if (startPos.y == p1.y)
+                if (startPos.y == p1.y && bStart == false)
                 {
                     bStart = true;
                 }
-                else if (endPos.y == p1.y)
+                else if (endPos.y == p1.y && bEnd == false)
                 {
                     if (bStart == false)
                         bReverse = true;
                     bEnd = true;
                 }
-
-                if (movePoints.size() > 4 && ((bStart == true && bEnd == false) || (bStart == false && bEnd == true)))
-                {
-                    std::vector<POINT> tempPoints;
-                    for (int j = i + 1; j < polygonPoints.size(); j++)
-                    {
-                        POINT temp1 = polygonPoints[j % polygonPoints.size()];
-                        POINT temp2 = polygonPoints[(j + 1) % polygonPoints.size()];
-
-                        tempPoints.push_back(temp1);
-
-                        if (temp1.x == temp2.x)
-                        {
-                            if ((startPos.x == temp1.x && bStart == false && IsInRange(startPos.y, temp1.y, temp2.y))
-                                || (endPos.x == temp1.x && bEnd == false && IsInRange(endPos.y, temp1.y, temp2.y)))
-                                break;
-                        }
-                        else if (temp1.y == temp2.y)
-                        {
-                            if (((startPos.y == temp1.y && bStart == false && IsInRange(startPos.x, temp1.x, temp2.x))
-                                || (endPos.y == temp1.y && bEnd == false && IsInRange(endPos.x, temp1.x, temp2.x))))
-                                break;
-                        }
-                    }
-
-                    for (int j = 0; j < tempPoints.size(); j++)
-                    {
-                        POINT point = { tempPoints[j].x, tempPoints[j].y };
-                        newPolygon.push_back(point);
-                    }
-                    for (int j = 0; j < movePoints.size(); j++)
-                    {
-                        POINT point;
-                        if (bReverse == false)
-                            point = { movePoints[(movePoints.size() - 1) - j].x, movePoints[(movePoints.size() - 1) - j].y };
-                        else
-                            point = { movePoints[j].x, movePoints[j].y };
-                        newPolygon.push_back(point);
-                    }
-                    /*for (int j = 0; j < frontPoints.size(); j++)
-                    {
-                        POINT point = { frontPoints[j].x, frontPoints[j].y };
-                        newPolygon.push_back(point);
-                    }
-                    for (int j = 0; j < movePoints.size(); j++)
-                    {
-                        POINT point;
-                        if (bReverse == false)
-                            point = { movePoints[j].x, movePoints[j].y };
-                        else
-                            point = { movePoints[(movePoints.size() - 1) - j].x, movePoints[(movePoints.size() - 1) - j].y };
-                        newPolygon.push_back(point);
-                    }*/
-
-                    if (IsInPolygon(newPolygon, p2.x, p2.y) || IsInFrame(newPolygon, p2.x, p2.y))
-                        bCheck = true;
-                    else
-                        bCheck = false;
-                }
             }
         }
+    }
+
+    std::vector<POINT> newPolygon;
+    for (int j = 0; j < frontPoints.size(); j++)
+    {
+        POINT point = { frontPoints[j].x, frontPoints[j].y };
+        newPolygon.push_back(point);
+    }
+    for (int j = 0; j < movePoints.size(); j++)
+    {
+        POINT point;
+        if (bReverse == false)
+            point = { movePoints[j].x, movePoints[j].y };
+        else
+            point = { movePoints[(movePoints.size() - 1) - j].x, movePoints[(movePoints.size() - 1) - j].y };
+        newPolygon.push_back(point);
+    }
+    for (int j = 0; j < backPoints.size(); j++)
+    {
+        POINT point = { backPoints[j].x, backPoints[j].y };
+        newPolygon.push_back(point);
+    }
+
+    if (midPoints.empty() == false)
+    {
+        if (IsInPolygon(newPolygon, midPoints[0].x, midPoints[0].y) || IsInFrame(newPolygon, midPoints[0].x, midPoints[0].y))
+            bCheck = true;
+        else
+            bCheck = false;
     }
 
     if (bCheck == true)
