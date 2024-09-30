@@ -257,8 +257,6 @@ void CreateBitmap()
     }
     else
         GetObject(hFrontImage, sizeof(BITMAP), &bitFront);
-
-    // Player
 }
 
 void DrawBitmap(HWND hWnd, HDC hdc)
